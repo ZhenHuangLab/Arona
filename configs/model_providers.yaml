@@ -1,0 +1,228 @@
+# Model Provider Configuration Examples
+# Copy this file and customize for your deployment
+
+# Example 1: OpenAI Configuration
+openai_example:
+  models:
+    llm:
+      provider: openai
+      model_name: gpt-4o-mini
+      api_key: ${OPENAI_API_KEY}
+      base_url: https://api.openai.com/v1
+      temperature: 0.7
+      max_tokens: 4096
+    
+    embedding:
+      provider: openai
+      model_name: text-embedding-3-large
+      api_key: ${OPENAI_API_KEY}
+      base_url: https://api.openai.com/v1
+      embedding_dim: 3072
+    
+    vision:
+      provider: openai
+      model_name: gpt-4o
+      api_key: ${OPENAI_API_KEY}
+      base_url: https://api.openai.com/v1
+  
+  reranker:
+    enabled: true
+    provider: local
+    model_path: ~/.huggingface/models/bge-reranker-v2-gemma
+    use_fp16: false
+  
+  working_dir: ./rag_storage
+  upload_dir: ./uploads
+  parser: mineru
+  enable_image_processing: true
+  enable_table_processing: true
+  enable_equation_processing: true
+
+
+# Example 2: Azure OpenAI Configuration
+azure_example:
+  models:
+    llm:
+      provider: azure
+      model_name: gpt-4o-mini
+      api_key: ${AZURE_OPENAI_API_KEY}
+      base_url: https://your-resource.openai.azure.com/
+      temperature: 0.7
+    
+    embedding:
+      provider: azure
+      model_name: text-embedding-3-large
+      api_key: ${AZURE_OPENAI_API_KEY}
+      base_url: https://your-resource.openai.azure.com/
+      embedding_dim: 3072
+  
+  working_dir: ./rag_storage
+  upload_dir: ./uploads
+  parser: mineru
+
+
+# Example 3: LM Studio (Local OpenAI-compatible)
+lmstudio_example:
+  models:
+    llm:
+      provider: local
+      model_name: local-model
+      api_key: not-needed
+      base_url: http://localhost:1234/v1
+      temperature: 0.7
+    
+    embedding:
+      provider: local
+      model_name: nomic-embed-text
+      api_key: not-needed
+      base_url: http://localhost:1234/v1
+      embedding_dim: 768
+  
+  reranker:
+    enabled: false
+  
+  working_dir: ./rag_storage
+  upload_dir: ./uploads
+  parser: mineru
+
+
+# Example 4: Mixed Providers (OpenAI LLM + Local Embedding)
+mixed_example:
+  models:
+    llm:
+      provider: openai
+      model_name: gpt-4o-mini
+      api_key: ${OPENAI_API_KEY}
+      base_url: https://api.openai.com/v1
+    
+    embedding:
+      provider: local
+      model_name: bge-m3
+      api_key: not-needed
+      base_url: http://localhost:11434/v1  # Ollama
+      embedding_dim: 1024
+    
+    vision:
+      provider: openai
+      model_name: gpt-4o
+      api_key: ${OPENAI_API_KEY}
+  
+  reranker:
+    enabled: true
+    provider: local
+    model_path: ~/.huggingface/models/bge-reranker-v2-gemma
+  
+  working_dir: ./rag_storage
+  upload_dir: ./uploads
+  parser: mineru
+  enable_image_processing: true
+  enable_table_processing: true
+  enable_equation_processing: true
+
+
+# Example 5: Custom API Provider (vLLM, Text Generation Inference, etc.)
+custom_api_example:
+  models:
+    llm:
+      provider: custom
+      model_name: Qwen/Qwen2.5-72B-Instruct
+      api_key: ${CUSTOM_API_KEY}
+      base_url: https://your-vllm-endpoint.com/v1
+      temperature: 0.7
+    
+    embedding:
+      provider: custom
+      model_name: BAAI/bge-large-en-v1.5
+      api_key: ${CUSTOM_API_KEY}
+      base_url: https://your-embedding-endpoint.com/v1
+      embedding_dim: 1024
+  
+  working_dir: ./rag_storage
+  upload_dir: ./uploads
+  parser: docling
+
+# Example 6: Jina AI Embedding & Reranker Configuration
+# Note: Uses custom Jina provider that doesn't send encoding_format parameter
+# Automatically detected by model name or base URL containing "jina"
+jina_reranker_example:
+  models:
+    llm:
+      provider: openai
+      model_name: gpt-4o-mini
+      api_key: ${OPENAI_API_KEY}
+
+    embedding:
+      provider: custom  # Auto-detected as Jina by model name
+      model_name: jina-embeddings-v4
+      api_key: ${JINA_API_KEY}
+      base_url: https://api.jina.ai/v1/embeddings
+      embedding_dim: 2048  # Options: 512, 1024, 2048 depending on model
+
+  reranker:
+    enabled: true
+    provider: api
+    model_name: jina-reranker-v2-base-multilingual
+    api_key: ${JINA_API_KEY}
+    base_url: https://api.jina.ai/v1/rerank  # Optional: auto-detected
+    batch_size: 16
+
+  working_dir: ./rag_storage
+  upload_dir: ./uploads
+  parser: mineru
+
+
+# Example 7: Cohere Reranker Configuration
+cohere_reranker_example:
+  models:
+    llm:
+      provider: openai
+      model_name: gpt-4o-mini
+      api_key: ${OPENAI_API_KEY}
+
+    embedding:
+      provider: openai
+      model_name: text-embedding-3-large
+      api_key: ${OPENAI_API_KEY}
+      embedding_dim: 3072
+
+  reranker:
+    enabled: true
+    provider: api
+    model_name: rerank-english-v3.0
+    api_key: ${COHERE_API_KEY}
+    base_url: https://api.cohere.ai/v1/rerank  # Optional: auto-detected
+    batch_size: 16
+
+  working_dir: ./rag_storage
+  upload_dir: ./uploads
+  parser: mineru
+
+
+# Example 8: Voyage AI Reranker Configuration
+voyage_reranker_example:
+  models:
+    llm:
+      provider: openai
+      model_name: gpt-4o-mini
+      api_key: ${OPENAI_API_KEY}
+
+    embedding:
+      provider: custom
+      model_name: voyage-large-2
+      api_key: ${VOYAGE_API_KEY}
+      base_url: https://api.voyageai.com/v1/embeddings
+      embedding_dim: 1536
+
+  reranker:
+    enabled: true
+    provider: api
+    model_name: rerank-lite-1
+    api_key: ${VOYAGE_API_KEY}
+    base_url: https://api.voyageai.com/v1/rerank  # Optional: auto-detected
+    batch_size: 16
+
+  working_dir: ./rag_storage
+  upload_dir: ./uploads
+  parser: mineru
+
+

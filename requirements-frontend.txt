@@ -1,0 +1,8 @@
+# Frontend UI Dependencies
+
+# Gradio for web interface
+gradio>=4.0.0
+
+# HTTP client
+requests>=2.31.0
+

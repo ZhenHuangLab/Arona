@@ -1,0 +1,229 @@
+# RAG-Anything Cluster Configuration Example
+#
+# IMPORTANT: This file is for DOCUMENTATION ONLY.
+# The cluster_rag_worker.py script uses ENVIRONMENT VARIABLES, not YAML config.
+# All settings below can be set as environment variables or CLI arguments.
+#
+# Usage:
+#   1. Copy this file to cluster.yaml if you want a config template
+#   2. Set environment variables directly (recommended for HPC/Slurm)
+#   3. Pass CLI arguments to scripts/cluster_rag_worker.py
+#
+# Environment variables take precedence over this file.
+# See env.example for the full list of available settings.
+
+# ==============================================================================
+# Ollama Service Configuration
+# ==============================================================================
+
+# Ollama service URL (REQUIRED)
+# Environment variable: OLLAMA_HOST
+# CLI argument: --ollama-host
+ollama:
+  host: "http://gpu-node:11434"
+
+  # Model for text generation
+  # Environment variable: OLLAMA_GENERATE_MODEL
+  # CLI argument: --llm-model
+  generate_model: "qwen2.5:latest"
+
+  # Model for embeddings
+  # Environment variable: OLLAMA_EMBED_MODEL
+  # CLI argument: --embed-model
+  embed_model: "bge-m3:latest"
+
+  # Embedding dimension (must match the embedding model)
+  # Environment variable: OLLAMA_EMBED_DIM
+  # CLI argument: --embed-dim
+  embed_dim: 1024
+
+  # Connection settings
+  # Environment variable: OLLAMA_TIMEOUT_SECONDS
+  # Should be slightly less than LLM_TIMEOUT to ensure HTTP fails before worker timeout
+  # When LLM_TIMEOUT=600, set this to 540
+  timeout_seconds: 540
+
+  # Environment variable: OLLAMA_MAX_RETRIES
+  max_retries: 2
+
+  # Environment variable: OLLAMA_RETRY_BACKOFF
+  retry_backoff: 0.5
+
+# ==============================================================================
+# Document Processing Configuration
+# ==============================================================================
+
+document_processing:
+  # Parser to use: mineru or docling
+  # Environment variable: PARSER
+  # CLI argument: --parser
+  parser: "mineru"
+
+  # Parse method: auto, ocr, txt
+  # Environment variable: PARSE_METHOD
+  parse_method: "auto"
+
+  # Enable multimodal processing
+  # Environment variable: ENABLE_IMAGE_PROCESSING
+  enable_image_processing: false
+
+  # Environment variable: ENABLE_TABLE_PROCESSING
+  enable_table_processing: true
+
+  # Environment variable: ENABLE_EQUATION_PROCESSING
+  enable_equation_processing: true
+
+# ==============================================================================
+# RAG Storage Configuration
+# ==============================================================================
+
+storage:
+  # Working directory for RAG data
+  # Environment variable: WORKING_DIR
+  # CLI argument: --working-dir
+  working_dir: "./rag_storage"
+
+  # Output directory for parsed documents
+  # Environment variable: OUTPUT_DIR
+  output_dir: "./output"
+
+# ==============================================================================
+# Reranker Configuration (for advanced retrieval)
+# ==============================================================================
+
+reranker:
+  # Enable reranking
+  # Environment variable: ENABLE_RERANK
+  enable: true
+
+  # Path to reranker model (e.g., bge-v2-gemma)
+  # Environment variable: RERANKER_MODEL_PATH
+  model_path: "${HOME}/.huggingface/models/bge-v2-gemma"
+
+  # Use FP16 precision (faster on GPU)
+  # Environment variable: RERANKER_USE_FP16
+  use_fp16: true
+
+  # Batch size for reranking
+  # Environment variable: RERANKER_BATCH_SIZE
+  batch_size: 16
+
+# ==============================================================================
+# Query Configuration
+# ==============================================================================
+
+query:
+  # Query mode: naive, local, global, hybrid
+  # CLI argument: --query-mode
+  mode: "hybrid"
+
+  # Maximum graph nodes to return
+  # Environment variable: MAX_GRAPH_NODES
+  max_graph_nodes: 1000
+
+  # Top-K retrieval parameter
+  # Environment variable: TOP_K
+  top_k: 60
+
+  # Cosine similarity threshold
+  # Environment variable: COSINE_THRESHOLD
+  cosine_threshold: 0.2
+
+# ==============================================================================
+# Cluster/Slurm Integration
+# ==============================================================================
+
+cluster:
+  # Shared data root on cluster filesystem
+  # Environment variable: RAG_SHARED_ROOT
+  shared_root: "/ShareS/UserHome/user007/rag-data"
+
+  # Runtime state directory
+  # Environment variable: RAG_RUNTIME_STATE
+  runtime_state: "${RAG_SHARED_ROOT}/runtime"
+
+  # Log output directory
+  # Environment variable: LOG_ROOT
+  log_root: "/ShareS/UserHome/user007/software/RAG-Anything/logs/slurm"
+
+  # Worker mode: ingest or query
+  # Environment variable: RAG_WORKER_MODE
+  worker_mode: "ingest"
+
+  # Number of GPUs for Ollama service
+  # Environment variable: OLLAMA_GPUS
+  ollama_gpus: 1
+
+# ==============================================================================
+# LightRAG Advanced Configuration
+# ==============================================================================
+
+lightrag:
+  # Chunk size for document splitting (500-1500 recommended)
+  # Environment variable: CHUNK_SIZE
+  chunk_size: 1200
+
+  # Chunk overlap size
+  # Environment variable: CHUNK_OVERLAP_SIZE
+  chunk_overlap: 100
+
+  # Maximum parallel insert operations
+  # Environment variable: MAX_PARALLEL_INSERT
+  max_parallel_insert: 2
+
+  # LLM cache settings
+  # Environment variable: ENABLE_LLM_CACHE
+  enable_llm_cache: true
+
+  # Environment variable: ENABLE_LLM_CACHE_FOR_EXTRACT
+  enable_llm_cache_for_extract: true
+
+  # LLM timeout configuration
+  # Environment variable: LLM_TIMEOUT
+  # Worker timeout will be 2×LLM_TIMEOUT, health check = 2×LLM_TIMEOUT+15
+  # Increase for slower models or complex extraction tasks
+  llm_timeout: 600
+
+  # Max async concurrency
+  # Environment variable: MAX_ASYNC
+  # Reduce to 1-2 for cluster environments to avoid timeouts under heavy load
+  max_async: 2
+
+  # Max gleaning iterations for entity extraction
+  # Environment variable: MAX_GLEANING
+  # Set to 0 to disable extra LLM passes and reduce processing time
+  max_gleaning: 0
+
+  # Max tokens for LLM context
+  # Environment variable: MAX_TOKENS
+  max_tokens: 32768
+
+  # Temperature for LLM sampling
+  # Environment variable: TEMPERATURE
+  temperature: 0
+
+  # Summary language
+  # Environment variable: SUMMARY_LANGUAGE
+  summary_language: "English"
+
+# ==============================================================================
+# Example Usage
+# ==============================================================================
+#
+# Environment variable approach (RECOMMENDED for HPC):
+#
+#   export OLLAMA_HOST=http://gpu-node:11434
+#   export OLLAMA_GENERATE_MODEL=qwen2.5:latest
+#   export WORKING_DIR=/shared/rag-data/workspace
+#   sbatch scripts/slurm/rag_worker_job.sh
+#
+# CLI argument approach:
+#
+#   python scripts/cluster_rag_worker.py \
+#     --mode ingest \
+#     --input-file /path/to/doc.pdf \
+#     --ollama-host http://gpu-node:11434 \
+#     --working-dir /shared/rag-data/workspace
+#
+# See scripts/cluster_rag_worker.py --help for all CLI options.
+# See env.example for complete environment variable reference.
