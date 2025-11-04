@@ -6,11 +6,13 @@ FastAPI application providing REST API for RAG operations.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +32,8 @@ if env_file.exists():
 
 from backend.config import BackendConfig
 from backend.services.rag_service import RAGService
+from backend.services.index_status_service import IndexStatusService
+from backend.services.background_indexer import BackgroundIndexer
 from backend.routers import documents, query, health, graph, config
 
 
@@ -57,9 +61,24 @@ async def lifespan(app: FastAPI):
     # Initialize RAG service
     rag_service = RAGService(config)
 
+    # Initialize index status service
+    index_status_service = IndexStatusService()
+
     # Store in app state
     app.state.config = config
     app.state.rag_service = rag_service
+    app.state.index_status_service = index_status_service
+
+    # Start background indexer if enabled
+    background_task: Optional[asyncio.Task] = None
+    if config.auto_indexing_enabled:
+        logger.info("Starting background indexer...")
+        indexer = BackgroundIndexer(config, rag_service, index_status_service)
+        background_task = asyncio.create_task(indexer.run_periodic_scan())
+        app.state.background_indexer_task = background_task
+        logger.info("Background indexer started")
+    else:
+        logger.info("Background indexing disabled")
 
     logger.info("Backend server started successfully")
     logger.info(f"Working directory: {config.working_dir}")
@@ -69,6 +88,19 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down RAG-Anything backend server...")
+
+    # Cancel background indexer if running
+    if background_task is not None:
+        logger.info("Stopping background indexer...")
+        background_task.cancel()
+        try:
+            await asyncio.wait_for(background_task, timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Background indexer did not stop within timeout")
+        except asyncio.CancelledError:
+            logger.info("Background indexer stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping background indexer: {e}", exc_info=True)
 
 
 # Create FastAPI app

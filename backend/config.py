@@ -174,7 +174,12 @@ class BackendConfig:
     enable_image_processing: bool = True
     enable_table_processing: bool = True
     enable_equation_processing: bool = True
-    
+
+    # Background indexing configuration
+    auto_indexing_enabled: bool = True
+    indexing_scan_interval: int = 60  # seconds between scans
+    indexing_max_files_per_batch: int = 5  # max files to process per iteration
+
     # API server configuration
     host: str = "0.0.0.0"
     port: int = 8000
@@ -207,7 +212,12 @@ class BackendConfig:
         enable_image = os.getenv("ENABLE_IMAGE_PROCESSING", "true").lower() == "true"
         enable_table = os.getenv("ENABLE_TABLE_PROCESSING", "true").lower() == "true"
         enable_equation = os.getenv("ENABLE_EQUATION_PROCESSING", "true").lower() == "true"
-        
+
+        # Background indexing settings
+        auto_indexing_enabled = os.getenv("AUTO_INDEXING_ENABLED", "true").lower() == "true"
+        indexing_scan_interval = int(os.getenv("INDEXING_SCAN_INTERVAL", "60"))
+        indexing_max_files_per_batch = int(os.getenv("INDEXING_MAX_FILES_PER_BATCH", "5"))
+
         # API server settings
         host = os.getenv("API_HOST", "0.0.0.0")
         port = int(os.getenv("API_PORT", "8000"))
@@ -224,6 +234,9 @@ class BackendConfig:
             enable_image_processing=enable_image,
             enable_table_processing=enable_table,
             enable_equation_processing=enable_equation,
+            auto_indexing_enabled=auto_indexing_enabled,
+            indexing_scan_interval=indexing_scan_interval,
+            indexing_max_files_per_batch=indexing_max_files_per_batch,
             host=host,
             port=port,
             cors_origins=cors_origins,
