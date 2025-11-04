@@ -24,6 +24,8 @@ from backend.models.document import (
     DocumentDetailsResponse,
     DocumentDeleteResponse,
 )
+from backend.models.index_status import IndexStatus, StatusEnum
+from backend.services.file_scanner import compute_file_hash
 
 
 router = APIRouter()
@@ -63,9 +65,34 @@ async def upload_document(
             f.write(content)
         
         file_size = file_path.stat().st_size
-        
+
         logger.info(f"Uploaded file: {file.filename} ({file_size} bytes)")
-        
+
+        # Defensive: Create IndexStatus record (status=PENDING)
+        # Reason: Track uploaded files for background indexing, but don't fail upload if status creation fails
+        try:
+            relative_path = str(file_path.relative_to(upload_dir))
+            file_hash = compute_file_hash(str(file_path))
+            last_modified = datetime.fromtimestamp(file_path.stat().st_mtime)
+
+            index_status = IndexStatus(
+                file_path=relative_path,
+                file_hash=file_hash,
+                status=StatusEnum.PENDING,
+                indexed_at=None,
+                error_message=None,
+                file_size=file_size,
+                last_modified=last_modified,
+            )
+            state.index_status_service.upsert_status(index_status)
+            logger.debug(f"Created IndexStatus (PENDING) for {relative_path}")
+        except Exception as status_error:
+            # Log warning but don't fail the upload
+            logger.warning(
+                f"Failed to create IndexStatus for {file.filename}: {status_error}",
+                exc_info=True
+            )
+
         return DocumentUploadResponse(
             filename=file.filename,
             file_path=str(file_path),
@@ -110,7 +137,57 @@ async def process_document(
             output_dir=req.output_dir,
             parse_method=req.parse_method,
         )
-        
+
+        # Defensive: Update IndexStatus to INDEXED after successful processing
+        # Reason: Track processing completion, but don't fail request if status update fails
+        if result.get("status") == "success":
+            try:
+                upload_dir = Path(state.config.upload_dir)
+                # Handle both absolute and relative paths
+                if file_path.is_absolute():
+                    relative_path = str(file_path.relative_to(upload_dir))
+                else:
+                    relative_path = str(file_path)
+
+                # Get existing status to preserve file_hash and file_size
+                existing_status = state.index_status_service.get_status(relative_path)
+                if existing_status:
+                    # Update existing status to INDEXED
+                    updated_status = IndexStatus(
+                        file_path=relative_path,
+                        file_hash=existing_status.file_hash,
+                        status=StatusEnum.INDEXED,
+                        indexed_at=datetime.now(),
+                        error_message=None,
+                        file_size=existing_status.file_size,
+                        last_modified=existing_status.last_modified,
+                    )
+                    state.index_status_service.upsert_status(updated_status)
+                    logger.debug(f"Updated IndexStatus (INDEXED) for {relative_path}")
+                else:
+                    # No existing status, create new one
+                    file_hash = compute_file_hash(str(file_path))
+                    file_size = file_path.stat().st_size
+                    last_modified = datetime.fromtimestamp(file_path.stat().st_mtime)
+
+                    new_status = IndexStatus(
+                        file_path=relative_path,
+                        file_hash=file_hash,
+                        status=StatusEnum.INDEXED,
+                        indexed_at=datetime.now(),
+                        error_message=None,
+                        file_size=file_size,
+                        last_modified=last_modified,
+                    )
+                    state.index_status_service.upsert_status(new_status)
+                    logger.debug(f"Created IndexStatus (INDEXED) for {relative_path}")
+            except Exception as status_error:
+                # Log warning but don't fail the processing response
+                logger.warning(
+                    f"Failed to update IndexStatus for {req.file_path}: {status_error}",
+                    exc_info=True
+                )
+
         return DocumentProcessResponse(**result)
     
     except HTTPException:
@@ -154,7 +231,34 @@ async def upload_and_process_document(
             file_path=str(file_path),
             parse_method=parse_method,
         )
-        
+
+        # Defensive: Create IndexStatus record (status=INDEXED) after successful processing
+        # Reason: Track processed files, but don't fail request if status creation fails
+        if result.get("status") == "success":
+            try:
+                relative_path = str(file_path.relative_to(upload_dir))
+                file_hash = compute_file_hash(str(file_path))
+                file_size = file_path.stat().st_size
+                last_modified = datetime.fromtimestamp(file_path.stat().st_mtime)
+
+                index_status = IndexStatus(
+                    file_path=relative_path,
+                    file_hash=file_hash,
+                    status=StatusEnum.INDEXED,
+                    indexed_at=datetime.now(),
+                    error_message=None,
+                    file_size=file_size,
+                    last_modified=last_modified,
+                )
+                state.index_status_service.upsert_status(index_status)
+                logger.debug(f"Created IndexStatus (INDEXED) for {relative_path}")
+            except Exception as status_error:
+                # Log warning but don't fail the upload-and-process response
+                logger.warning(
+                    f"Failed to create IndexStatus for {file.filename}: {status_error}",
+                    exc_info=True
+                )
+
         return DocumentProcessResponse(**result)
     
     except Exception as e:
