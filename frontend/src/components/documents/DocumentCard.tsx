@@ -4,7 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog';
+import { IndexStatusBadge } from './IndexStatusBadge';
 import { useDocuments } from '@/hooks/useDocuments';
+import { useIndexStatus } from '@/hooks/useIndexStatus';
 import type { DocumentInfo } from '@/types/document';
 
 interface DocumentCardProps {
@@ -26,6 +28,13 @@ interface DocumentCardProps {
 export function DocumentCard({ document, onClick }: DocumentCardProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const { deleteDocument, isDeleting } = useDocuments();
+  const { indexStatuses } = useIndexStatus();
+
+  // Find index status for this document
+  const indexStatus = indexStatuses.find(
+    (status) => status.file_path === document.path
+  );
+
   const formatDate = (date?: Date | string) => {
     if (!date) return 'Unknown';
     const dateObj = typeof date === 'string' ? new Date(date) : date;
@@ -95,8 +104,10 @@ export function DocumentCard({ document, onClick }: DocumentCardProps) {
             <span>Uploaded {formatDate(document.uploadedAt)}</span>
           </div>
         )}
-        {document.status && (
-          <div className="flex items-center gap-2">
+        {/* Status Badges */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Document Status Badge (existing) */}
+          {document.status && (
             <Badge
               variant={
                 document.status === 'indexed' || document.status === 'success'
@@ -112,8 +123,16 @@ export function DocumentCard({ document, onClick }: DocumentCardProps) {
             >
               {document.status}
             </Badge>
-          </div>
-        )}
+          )}
+
+          {/* Index Status Badge (new) */}
+          {indexStatus && (
+            <IndexStatusBadge
+              status={indexStatus.status}
+              errorMessage={indexStatus.error_message}
+            />
+          )}
+        </div>
       </CardContent>
     </Card>
 

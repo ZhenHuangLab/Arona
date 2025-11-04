@@ -13,6 +13,7 @@ import type {
   DocumentDetailsResponse,
   DocumentDeleteResponse,
 } from '../types';
+import type { IndexStatusListResponse } from '../types/index-status';
 
 /**
  * Upload a document file
@@ -128,6 +129,20 @@ export const deleteDocument = async (filename: string): Promise<DocumentDeleteRe
     return response.data;
   } catch (error) {
     console.error('Failed to delete document:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get index status for all documents
+ * Returns indexing status (pending/processing/indexed/failed) for each document
+ */
+export const getIndexStatus = async (): Promise<IndexStatusListResponse> => {
+  try {
+    const response = await apiClient.get<IndexStatusListResponse>('/api/documents/index-status');
+    return response.data;
+  } catch (error) {
+    console.error('Failed to get index status:', error);
     throw error;
   }
 };
