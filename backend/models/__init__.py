@@ -22,6 +22,11 @@ from backend.models.query import (
     ConversationResponse,
     ConversationMessage,
 )
+from backend.models.index_status import (
+    IndexStatus,
+    IndexStatusResponse,
+    StatusEnum,
+)
 
 __all__ = [
     "DocumentUploadResponse",
@@ -40,5 +45,8 @@ __all__ = [
     "ConversationRequest",
     "ConversationResponse",
     "ConversationMessage",
+    "IndexStatus",
+    "IndexStatusResponse",
+    "StatusEnum",
 ]
 
