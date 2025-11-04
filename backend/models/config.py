@@ -45,7 +45,7 @@ class CurrentConfigResponse(BaseModel):
     models: Dict[str, Any] = Field(default_factory=dict, description="Model configurations")
     storage: Dict[str, Any] = Field(default_factory=dict, description="Storage configuration")
     processing: Dict[str, Any] = Field(default_factory=dict, description="Processing configuration")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -68,6 +68,59 @@ class CurrentConfigResponse(BaseModel):
                     "parser": "mineru",
                     "enable_image_processing": True
                 }
+            }
+        }
+
+
+class IndexingConfigResponse(BaseModel):
+    """Response model for indexing configuration."""
+    auto_indexing_enabled: bool = Field(
+        ...,
+        description="Whether automatic background indexing is enabled"
+    )
+    indexing_scan_interval: int = Field(
+        ...,
+        ge=1,
+        description="Seconds between background scans for new files"
+    )
+    indexing_max_files_per_batch: int = Field(
+        ...,
+        ge=1,
+        description="Maximum number of files to process per iteration"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "auto_indexing_enabled": True,
+                "indexing_scan_interval": 60,
+                "indexing_max_files_per_batch": 5
+            }
+        }
+
+
+class IndexingConfigUpdate(BaseModel):
+    """Request model for updating indexing configuration (partial updates supported)."""
+    auto_indexing_enabled: Optional[bool] = Field(
+        None,
+        description="Whether automatic background indexing is enabled"
+    )
+    indexing_scan_interval: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Seconds between background scans for new files"
+    )
+    indexing_max_files_per_batch: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Maximum number of files to process per iteration"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "indexing_scan_interval": 120,
+                "indexing_max_files_per_batch": 10
             }
         }
 

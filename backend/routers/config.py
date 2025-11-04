@@ -13,7 +13,9 @@ from dotenv import load_dotenv
 from backend.models.config import (
     ConfigReloadRequest,
     ConfigReloadResponse,
-    CurrentConfigResponse
+    CurrentConfigResponse,
+    IndexingConfigResponse,
+    IndexingConfigUpdate,
 )
 
 
@@ -172,18 +174,91 @@ async def get_current_config(request: Request):
         )
 
 
+@router.get("/indexing", response_model=IndexingConfigResponse)
+async def get_indexing_config(request: Request):
+    """
+    Get current indexing configuration.
+
+    Returns the current background indexing settings including:
+    - auto_indexing_enabled: Whether background indexing is active
+    - indexing_scan_interval: Seconds between scans for new files
+    - indexing_max_files_per_batch: Max files processed per iteration
+    """
+    try:
+        config = request.app.state.config
+
+        return IndexingConfigResponse(
+            auto_indexing_enabled=config.auto_indexing_enabled,
+            indexing_scan_interval=config.indexing_scan_interval,
+            indexing_max_files_per_batch=config.indexing_max_files_per_batch,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get indexing config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get indexing config: {str(e)}"
+        )
+
+
+@router.put("/indexing", response_model=IndexingConfigResponse)
+async def update_indexing_config(
+    request: Request,
+    update: IndexingConfigUpdate
+):
+    """
+    Update indexing configuration at runtime.
+
+    Supports partial updates - only specified fields will be changed.
+    Changes take effect immediately for the background indexer.
+
+    Note: Changes are runtime-only and will be lost on server restart.
+    To persist changes, update environment variables or configuration files.
+    """
+    try:
+        config = request.app.state.config
+
+        # Apply partial updates
+        # Reason: Only update fields that are explicitly provided (not None)
+        if update.auto_indexing_enabled is not None:
+            config.auto_indexing_enabled = update.auto_indexing_enabled
+            logger.info(f"Updated auto_indexing_enabled to {update.auto_indexing_enabled}")
+
+        if update.indexing_scan_interval is not None:
+            config.indexing_scan_interval = update.indexing_scan_interval
+            logger.info(f"Updated indexing_scan_interval to {update.indexing_scan_interval}")
+
+        if update.indexing_max_files_per_batch is not None:
+            config.indexing_max_files_per_batch = update.indexing_max_files_per_batch
+            logger.info(f"Updated indexing_max_files_per_batch to {update.indexing_max_files_per_batch}")
+
+        # Return updated configuration
+        return IndexingConfigResponse(
+            auto_indexing_enabled=config.auto_indexing_enabled,
+            indexing_scan_interval=config.indexing_scan_interval,
+            indexing_max_files_per_batch=config.indexing_max_files_per_batch,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to update indexing config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update indexing config: {str(e)}"
+        )
+
+
 @router.get("/files")
 async def list_config_files():
     """
     List available configuration files.
-    
+
     Returns a list of configuration files that can be reloaded.
     """
     try:
         project_root = Path(__file__).parent.parent.parent
-        
+
         config_files = []
-        
+
         # Check for .env files
         for env_file in [".env.backend", ".env", "env.example"]:
             env_path = project_root / env_file
@@ -194,7 +269,7 @@ async def list_config_files():
                     "exists": True,
                     "size": env_path.stat().st_size
                 })
-        
+
         # Check for YAML config files
         configs_dir = project_root / "configs"
         if configs_dir.exists():
@@ -206,12 +281,12 @@ async def list_config_files():
                         "exists": True,
                         "size": yaml_file.stat().st_size
                     })
-        
+
         return {
             "config_files": config_files,
             "total": len(config_files)
         }
-    
+
     except Exception as e:
         logger.error(f"Failed to list config files: {e}", exc_info=True)
         raise HTTPException(

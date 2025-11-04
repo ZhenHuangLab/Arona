@@ -1886,19 +1886,372 @@
       </Subsection>
       <Subsection id="3.2">
         <Title>3.2 Execution</Title>
-        <Placeholder>To be filled after execution</Placeholder>
+        <PhaseExecution>
+          <Step>
+            <Action>Added Pydantic models to backend/models/config.py</Action>
+            <Details>
+              - Created IndexingConfigResponse(BaseModel) with fields:
+                * auto_indexing_enabled: bool (required)
+                * indexing_scan_interval: int (required, ge=1)
+                * indexing_max_files_per_batch: int (required, ge=1)
+              - Created IndexingConfigUpdate(BaseModel) with Optional fields for partial updates:
+                * auto_indexing_enabled: Optional[bool]
+                * indexing_scan_interval: Optional[int] (ge=1)
+                * indexing_max_files_per_batch: Optional[int] (ge=1)
+              - Added json_schema_extra examples for both models
+              - Note: Used existing field names from BackendConfig (indexing_scan_interval in seconds, not minutes)
+            </Details>
+          </Step>
+          <Step>
+            <Action>Added GET /api/config/indexing endpoint to backend/routers/config.py</Action>
+            <Details>
+              - Endpoint: GET /api/config/indexing
+              - Returns IndexingConfigResponse with current values from app.state.config
+              - Reads: config.auto_indexing_enabled, config.indexing_scan_interval, config.indexing_max_files_per_batch
+              - Error handling: Returns 500 on exceptions with detailed error message
+            </Details>
+          </Step>
+          <Step>
+            <Action>Added PUT /api/config/indexing endpoint to backend/routers/config.py</Action>
+            <Details>
+              - Endpoint: PUT /api/config/indexing
+              - Accepts IndexingConfigUpdate (partial updates supported)
+              - Updates app.state.config fields directly (dataclass is mutable)
+              - Only updates fields that are not None (partial update logic)
+              - Logs each field update at INFO level
+              - Returns updated IndexingConfigResponse
+              - Note: Changes are runtime-only, not persisted to .env
+              - Background indexer sees changes immediately (holds reference to same config object)
+            </Details>
+          </Step>
+          <Step>
+            <Action>Created backend/tests/test_config_api.py</Action>
+            <Details>
+              - Created test fixtures:
+                * temp_upload_dir: Temporary upload directory
+                * temp_working_dir: Temporary working directory
+                * mock_config: BackendConfig with default indexing settings
+                * test_client: TestClient with mocked services and config
+              - Implemented 6 test functions:
+                * test_get_indexing_config_returns_defaults: Verifies GET returns default values
+                * test_update_indexing_config_changes_values: Verifies PUT updates all fields
+                * test_update_indexing_config_partial: Verifies partial updates work correctly
+                * test_update_indexing_config_validation: Verifies invalid values are rejected (422)
+                * test_background_indexer_uses_updated_config: Verifies indexer sees config changes
+                * test_get_indexing_config_after_multiple_updates: Verifies multiple updates accumulate
+              - All tests use FastAPI TestClient and mock app.state
+            </Details>
+          </Step>
+          <Step>
+            <Action>Ran tests with pytest</Action>
+            <Details>
+              - Command: uv run python -m pytest backend/tests/test_config_api.py -v
+              - Result: 6 passed, 6 warnings in 1.08s
+              - All tests passed successfully
+              - Warnings are from Pydantic's deprecated class-based config (existing codebase issue)
+            </Details>
+          </Step>
+          <Step>
+            <Action>Verified exit criteria</Action>
+            <Details>
+              ✅ IndexingConfig added to backend/config.py with defaults (already existed from P3)
+              ✅ GET /api/config/indexing returns current configuration
+              ✅ PUT /api/config/indexing updates configuration
+              ✅ Background indexer uses updated configuration values
+              ✅ All config API tests pass (6/6)
+            </Details>
+          </Step>
+        </PhaseExecution>
       </Subsection>
       <Subsection id="3.3">
         <Title>3.3 Diffs</Title>
-        <Placeholder>To be filled after execution</Placeholder>
+        <PhaseDiffs>
+          <Diff>
+            <File>backend/models/config.py</File>
+            <Hunk>
+              <![CDATA[
+@@ -72,3 +72,84 @@ class CurrentConfigResponse(BaseModel):
+                 }
+             }
+         }
++
++
++class IndexingConfigResponse(BaseModel):
++    """Response model for indexing configuration."""
++    auto_indexing_enabled: bool = Field(
++        ...,
++        description="Whether automatic background indexing is enabled"
++    )
++    indexing_scan_interval: int = Field(
++        ...,
++        ge=1,
++        description="Seconds between background scans for new files"
++    )
++    indexing_max_files_per_batch: int = Field(
++        ...,
++        ge=1,
++        description="Maximum number of files to process per iteration"
++    )
++
++    class Config:
++        json_schema_extra = {
++            "example": {
++                "auto_indexing_enabled": True,
++                "indexing_scan_interval": 60,
++                "indexing_max_files_per_batch": 5
++            }
++        }
++
++
++class IndexingConfigUpdate(BaseModel):
++    """Request model for updating indexing configuration (partial updates supported)."""
++    auto_indexing_enabled: Optional[bool] = Field(
++        None,
++        description="Whether automatic background indexing is enabled"
++    )
++    indexing_scan_interval: Optional[int] = Field(
++        None,
++        ge=1,
++        description="Seconds between background scans for new files"
++    )
++    indexing_max_files_per_batch: Optional[int] = Field(
++        None,
++        ge=1,
++        description="Maximum number of files to process per iteration"
++    )
++
++    class Config:
++        json_schema_extra = {
++            "example": {
++                "indexing_scan_interval": 120,
++                "indexing_max_files_per_batch": 10
++            }
++        }
+              ]]>
+            </Hunk>
+          </Diff>
+          <Diff>
+            <File>backend/routers/config.py</File>
+            <Hunk>
+              <![CDATA[
+@@ -13,7 +13,9 @@ from dotenv import load_dotenv
+ from backend.models.config import (
+     ConfigReloadRequest,
+     ConfigReloadResponse,
+-    CurrentConfigResponse
++    CurrentConfigResponse,
++    IndexingConfigResponse,
++    IndexingConfigUpdate,
+ )
+              ]]>
+            </Hunk>
+            <Hunk>
+              <![CDATA[
+@@ -175,6 +177,72 @@ async def get_current_config(request: Request):
+         )
+
+
++@router.get("/indexing", response_model=IndexingConfigResponse)
++async def get_indexing_config(request: Request):
++    """
++    Get current indexing configuration.
++
++    Returns the current background indexing settings including:
++    - auto_indexing_enabled: Whether background indexing is active
++    - indexing_scan_interval: Seconds between scans for new files
++    - indexing_max_files_per_batch: Max files processed per iteration
++    """
++    try:
++        config = request.app.state.config
++
++        return IndexingConfigResponse(
++            auto_indexing_enabled=config.auto_indexing_enabled,
++            indexing_scan_interval=config.indexing_scan_interval,
++            indexing_max_files_per_batch=config.indexing_max_files_per_batch,
++        )
++
++    except Exception as e:
++        logger.error(f"Failed to get indexing config: {e}", exc_info=True)
++        raise HTTPException(
++            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
++            detail=f"Failed to get indexing config: {str(e)}"
++        )
++
++
++@router.put("/indexing", response_model=IndexingConfigResponse)
++async def update_indexing_config(
++    request: Request,
++    update: IndexingConfigUpdate
++):
++    """
++    Update indexing configuration at runtime.
++
++    Supports partial updates - only specified fields will be changed.
++    Changes take effect immediately for the background indexer.
++
++    Note: Changes are runtime-only and will be lost on server restart.
++    To persist changes, update environment variables or configuration files.
++    """
++    try:
++        config = request.app.state.config
++
++        # Apply partial updates
++        # Reason: Only update fields that are explicitly provided (not None)
++        if update.auto_indexing_enabled is not None:
++            config.auto_indexing_enabled = update.auto_indexing_enabled
++            logger.info(f"Updated auto_indexing_enabled to {update.auto_indexing_enabled}")
++
++        if update.indexing_scan_interval is not None:
++            config.indexing_scan_interval = update.indexing_scan_interval
++            logger.info(f"Updated indexing_scan_interval to {update.indexing_scan_interval}")
++
++        if update.indexing_max_files_per_batch is not None:
++            config.indexing_max_files_per_batch = update.indexing_max_files_per_batch
++            logger.info(f"Updated indexing_max_files_per_batch to {update.indexing_max_files_per_batch}")
++
++        # Return updated configuration
++        return IndexingConfigResponse(
++            auto_indexing_enabled=config.auto_indexing_enabled,
++            indexing_scan_interval=config.indexing_scan_interval,
++            indexing_max_files_per_batch=config.indexing_max_files_per_batch,
++        )
++
++    except Exception as e:
++        logger.error(f"Failed to update indexing config: {e}", exc_info=True)
++        raise HTTPException(
++            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
++            detail=f"Failed to update indexing config: {str(e)}"
++        )
++
++
+ @router.get("/files")
+ async def list_config_files():
+              ]]>
+            </Hunk>
+          </Diff>
+          <Diff>
+            <File>backend/tests/test_config_api.py</File>
+            <Hunk>
+              <![CDATA[
+New file: 230 lines
+- Test fixtures for temp directories and mock config
+- 6 test functions covering GET/PUT endpoints
+- Validation tests for invalid input
+- Integration test for background indexer config updates
+              ]]>
+            </Hunk>
+          </Diff>
+        </PhaseDiffs>
       </Subsection>
       <Subsection id="3.4">
         <Title>3.4 Inline Comments</Title>
-        <Placeholder>To be filled after execution</Placeholder>
+        <InlineComments>
+          <Comment>
+            <Location>backend/routers/config.py:225-226</Location>
+            <Code>
+              <![CDATA[
+        # Apply partial updates
+        # Reason: Only update fields that are explicitly provided (not None)
+              ]]>
+            </Code>
+            <Explanation>
+              Partial update pattern: Check if each field is not None before updating.
+              This allows clients to update only specific fields without affecting others.
+              Follows REST API best practices for PATCH-like behavior via PUT.
+            </Explanation>
+          </Comment>
+          <Comment>
+            <Location>backend/models/config.py:78-82</Location>
+            <Code>
+              <![CDATA[
+    indexing_scan_interval: int = Field(
+        ...,
+        ge=1,
+        description="Seconds between background scans for new files"
+    )
+              ]]>
+            </Code>
+            <Explanation>
+              Field validation using Pydantic's ge (greater than or equal) constraint.
+              Ensures scan_interval is always at least 1 second, preventing invalid configurations.
+              The ... (Ellipsis) marks the field as required in IndexingConfigResponse.
+            </Explanation>
+          </Comment>
+          <Comment>
+            <Location>backend/tests/test_config_api.py:96-97</Location>
+            <Code>
+              <![CDATA[
+    # Verify indexer has reference to same config object
+    assert indexer.config is config
+              ]]>
+            </Code>
+            <Explanation>
+              Critical test: Verifies that the background indexer holds a reference to the same
+              config object as app.state.config. This ensures runtime config updates are
+              immediately visible to the indexer without needing to restart or notify it.
+              Uses 'is' operator to check object identity, not just equality.
+            </Explanation>
+          </Comment>
+        </InlineComments>
       </Subsection>
       <Subsection id="3.5">
         <Title>3.5 Results</Title>
-        <Placeholder>To be filled after execution</Placeholder>
+        <PhaseResults>
+          <TestResults>
+            <Command>uv run python -m pytest backend/tests/test_config_api.py -v</Command>
+            <Output>
+              <![CDATA[
+========================================================== test session starts ==========================================================
+platform linux -- Python 3.12.7, pytest-8.4.2, pluggy-1.6.0 -- /ShareS/UserHome/user007/software/Arona/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /ShareS/UserHome/user007/software/Arona
+configfile: pyproject.toml
+plugins: asyncio-1.2.0, anyio-4.11.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 6 items
+
+backend/tests/test_config_api.py::test_get_indexing_config_returns_defaults PASSED                                                [ 16%]
+backend/tests/test_config_api.py::test_update_indexing_config_changes_values PASSED                                               [ 33%]
+backend/tests/test_config_api.py::test_update_indexing_config_partial PASSED                                                      [ 50%]
+backend/tests/test_config_api.py::test_update_indexing_config_validation PASSED                                                   [ 66%]
+backend/tests/test_config_api.py::test_background_indexer_uses_updated_config PASSED                                              [ 83%]
+backend/tests/test_config_api.py::test_get_indexing_config_after_multiple_updates PASSED                                          [100%]
+
+===================================================== 6 passed, 6 warnings in 1.08s =====================================================
+              ]]>
+            </Output>
+            <Summary>All 6 tests passed successfully. Warnings are from Pydantic's deprecated class-based config (existing codebase).</Summary>
+          </TestResults>
+          <ExitCriteriaVerification>
+            <Criterion status="met">IndexingConfig added to backend/config.py with defaults</Criterion>
+            <Criterion status="met">GET /api/config/indexing returns current configuration</Criterion>
+            <Criterion status="met">PUT /api/config/indexing updates configuration</Criterion>
+            <Criterion status="met">Background indexer uses updated configuration values</Criterion>
+            <Criterion status="met">All config API tests pass</Criterion>
+          </ExitCriteriaVerification>
+          <FilesModified>
+            <File>backend/models/config.py</File>
+            <File>backend/routers/config.py</File>
+          </FilesModified>
+          <FilesCreated>
+            <File>backend/tests/test_config_api.py</File>
+          </FilesCreated>
+          <Notes>
+            <Note>
+              Used existing field names from BackendConfig (indexing_scan_interval in seconds, not minutes as in plan).
+              This maintains consistency with existing implementation from Phase P3.
+            </Note>
+            <Note>
+              Runtime config updates work via direct field mutation of the dataclass.
+              Background indexer sees changes immediately because it holds a reference to the same config object.
+              No complex thread-safety mechanisms needed due to Python GIL and simple field updates.
+            </Note>
+            <Note>
+              Config changes are runtime-only and not persisted to .env or config files.
+              This is documented in the PUT endpoint docstring.
+            </Note>
+          </Notes>
+        </PhaseResults>
       </Subsection>
       <Subsection id="3.6">
         <Title>3.6 Review</Title>
