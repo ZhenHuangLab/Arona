@@ -75,10 +75,12 @@ async def lifespan(app: FastAPI):
         logger.info("Starting background indexer...")
         indexer = BackgroundIndexer(config, rag_service, index_status_service)
         background_task = asyncio.create_task(indexer.run_periodic_scan())
+        app.state.background_indexer = indexer  # Store indexer instance for manual triggers
         app.state.background_indexer_task = background_task
         logger.info("Background indexer started")
     else:
         logger.info("Background indexing disabled")
+        app.state.background_indexer = None  # Explicitly set to None when disabled
 
     logger.info("Backend server started successfully")
     logger.info(f"Working directory: {config.working_dir}")

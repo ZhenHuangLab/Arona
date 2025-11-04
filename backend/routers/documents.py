@@ -24,7 +24,12 @@ from backend.models.document import (
     DocumentDetailsResponse,
     DocumentDeleteResponse,
 )
-from backend.models.index_status import IndexStatus, StatusEnum
+from backend.models.index_status import (
+    IndexStatus,
+    IndexStatusResponse,
+    StatusEnum,
+    TriggerIndexResponse,
+)
 from backend.services.file_scanner import compute_file_hash
 
 
@@ -615,5 +620,114 @@ async def delete_document(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete document: {str(e)}"
+        )
+
+
+@router.get("/index-status", response_model=List[IndexStatusResponse])
+async def get_index_status(request: Request):
+    """
+    Get indexing status for all documents.
+
+    Returns a list of all documents in the upload directory with their
+    current indexing status (pending/processing/indexed/failed).
+
+    Returns:
+        List[IndexStatusResponse]: List of document statuses
+    """
+    state = request.app.state
+
+    try:
+        # Get all index statuses from database
+        all_statuses = state.index_status_service.list_all_status()
+
+        # Convert to response models
+        response = [
+            IndexStatusResponse(
+                file_path=status.file_path,
+                file_hash=status.file_hash,
+                status=status.status,
+                indexed_at=status.indexed_at,
+                error_message=status.error_message,
+                file_size=status.file_size,
+                last_modified=status.last_modified,
+            )
+            for status in all_statuses
+        ]
+
+        logger.debug(f"Retrieved {len(response)} index status records")
+        return response
+
+    except Exception as e:
+        logger.error(f"Failed to get index status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get index status: {str(e)}"
+        )
+
+
+@router.post("/trigger-index", response_model=TriggerIndexResponse)
+async def trigger_index(request: Request):
+    """
+    Manually trigger index scan and processing.
+
+    Scans the upload directory for new/modified files, updates their status,
+    and triggers background processing for pending files.
+
+    Returns:
+        TriggerIndexResponse: Summary of scan results and processing status
+    """
+    state = request.app.state
+
+    try:
+        # Check if background indexer is available
+        if not hasattr(state, 'background_indexer') or state.background_indexer is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Background indexer is not enabled. Set AUTO_INDEXING_ENABLED=true in configuration."
+            )
+
+        indexer = state.background_indexer
+
+        # Scan upload directory and update status
+        # Reason: This is fast (just file scanning and DB updates), safe to await
+        await indexer.scan_and_update_status()
+
+        # Get all statuses to count by status
+        all_statuses = state.index_status_service.list_all_status()
+
+        # Count files by status
+        files_scanned = len(all_statuses)
+        files_pending = sum(1 for s in all_statuses if s.status == StatusEnum.PENDING)
+        files_processing = sum(1 for s in all_statuses if s.status == StatusEnum.PROCESSING)
+
+        # Trigger background processing (don't await - let it run in background)
+        # Reason: Processing can take time, don't block HTTP response
+        import asyncio
+        asyncio.create_task(indexer.process_pending_files())
+
+        # Build response message
+        message = f"Scan complete. Found {files_scanned} files total, {files_pending} pending processing."
+        if files_processing > 0:
+            message += f" {files_processing} files currently processing."
+
+        logger.info(
+            f"Manual index trigger: scanned={files_scanned}, "
+            f"pending={files_pending}, processing={files_processing}"
+        )
+
+        return TriggerIndexResponse(
+            files_scanned=files_scanned,
+            files_pending=files_pending,
+            files_processing=files_processing,
+            message=message,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to trigger index: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to trigger index: {str(e)}"
         )
 

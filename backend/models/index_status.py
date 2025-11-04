@@ -60,10 +60,10 @@ class IndexStatus(BaseModel):
 class IndexStatusResponse(BaseModel):
     """
     API response model for document index status.
-    
+
     Returned by GET /api/documents/index-status endpoint.
     """
-    
+
     file_path: str = Field(
         ...,
         description="Relative file path from upload directory"
@@ -91,5 +91,34 @@ class IndexStatusResponse(BaseModel):
     last_modified: datetime = Field(
         ...,
         description="File's last modification timestamp"
+    )
+
+
+class TriggerIndexResponse(BaseModel):
+    """
+    API response model for manual index trigger operation.
+
+    Returned by POST /api/documents/trigger-index endpoint.
+    Provides summary of scan and processing operation.
+    """
+
+    files_scanned: int = Field(
+        ...,
+        description="Total number of files found in upload directory",
+        ge=0
+    )
+    files_pending: int = Field(
+        ...,
+        description="Number of files with status=pending (awaiting processing)",
+        ge=0
+    )
+    files_processing: int = Field(
+        ...,
+        description="Number of files currently being processed",
+        ge=0
+    )
+    message: str = Field(
+        ...,
+        description="Human-readable summary of the operation"
     )
 

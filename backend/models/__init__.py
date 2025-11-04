@@ -26,6 +26,7 @@ from backend.models.index_status import (
     IndexStatus,
     IndexStatusResponse,
     StatusEnum,
+    TriggerIndexResponse,
 )
 
 __all__ = [
@@ -48,5 +49,6 @@ __all__ = [
     "IndexStatus",
     "IndexStatusResponse",
     "StatusEnum",
+    "TriggerIndexResponse",
 ]
 
