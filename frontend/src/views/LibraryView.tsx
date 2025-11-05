@@ -1,12 +1,21 @@
 import React from 'react';
-import { Library, Search, HardDrive, Database, Copy } from 'lucide-react';
+import { Library, Search, HardDrive, Database, Copy, RefreshCw, Settings, RotateCcw } from 'lucide-react';
 import { DocumentCard, DocumentDetailsModal } from '@/components/documents';
+import { IndexingSettingsDialog } from '@/components/documents/IndexingSettingsDialog';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { EmptyState, LoadingSpinner } from '@/components/common';
 import { useDocuments } from '@/hooks/useDocuments';
 import { useConfig } from '@/hooks/useConfig';
+import { useTriggerIndex, useReindexDocuments } from '@/hooks/useIndexingConfig';
 import { copyToClipboard } from '@/lib/clipboard';
 import type { DocumentInfo } from '@/types/document';
 
@@ -25,9 +34,12 @@ import type { DocumentInfo } from '@/types/document';
 export const LibraryView: React.FC = () => {
   const { documents, isLoading } = useDocuments();
   const { config } = useConfig();
+  const { triggerScan, isTriggering } = useTriggerIndex();
+  const { reindex, isReindexing } = useReindexDocuments();
   const [searchQuery, setSearchQuery] = React.useState('');
   const [selectedDocument, setSelectedDocument] = React.useState<DocumentInfo | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = React.useState(false);
+  const [settingsDialogOpen, setSettingsDialogOpen] = React.useState(false);
 
   const filteredDocuments = React.useMemo(() => {
     if (!documents) return [];
@@ -49,11 +61,92 @@ export const LibraryView: React.FC = () => {
             <Library className="h-6 w-6 text-white" />
           </div>
           <div className="flex-1">
-            <h2 className="text-xl font-bold text-gray-900 mb-2">
-              Document Library
-            </h2>
+            <div className="flex items-start justify-between mb-2">
+              <div className="flex-1">
+                <h2 className="text-xl font-bold text-gray-900">
+                  Document Library
+                </h2>
+              </div>
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => triggerScan()}
+                  disabled={isTriggering}
+                  className="gap-2"
+                  title="Manually trigger index scan for new files"
+                >
+                  {isTriggering ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      Scanning...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-4 w-4" />
+                      Refresh Index
+                    </>
+                  )}
+                </Button>
+
+                {/* Re-index Dropdown Menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isReindexing}
+                      className="gap-2"
+                      title="Re-index documents"
+                    >
+                      {isReindexing ? (
+                        <>
+                          <RotateCcw className="h-4 w-4 animate-spin" />
+                          Re-indexing...
+                        </>
+                      ) : (
+                        <>
+                          <RotateCcw className="h-4 w-4" />
+                          Re-index
+                        </>
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => reindex({ force: false })}
+                      disabled={isReindexing}
+                    >
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Re-index Failed Files
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => reindex({ force: true })}
+                      disabled={isReindexing}
+                      className="text-orange-600"
+                    >
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Force Re-index All Files
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSettingsDialogOpen(true)}
+                  className="gap-2"
+                  title="Configure indexing settings"
+                >
+                  <Settings className="h-4 w-4" />
+                  Settings
+                </Button>
+              </div>
+            </div>
             <p className="text-gray-600 mb-4">
-              Browse and manage your uploaded documents. All documents are indexed and ready for queries.
+              Browse and manage your uploaded documents. Use "Refresh Index" to scan for new files, or "Re-index" to rebuild the knowledge graph for existing documents.
             </p>
 
             {/* Storage Directories */}
@@ -171,6 +264,12 @@ export const LibraryView: React.FC = () => {
           document={selectedDocument}
         />
       )}
+
+      {/* Indexing Settings Dialog */}
+      <IndexingSettingsDialog
+        open={settingsDialogOpen}
+        onOpenChange={setSettingsDialogOpen}
+      />
     </div>
   );
 };

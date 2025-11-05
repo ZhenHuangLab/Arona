@@ -29,6 +29,8 @@ from backend.models.index_status import (
     IndexStatusResponse,
     StatusEnum,
     TriggerIndexResponse,
+    ReindexRequest,
+    ReindexResponse,
 )
 from backend.services.file_scanner import compute_file_hash
 
@@ -394,21 +396,30 @@ async def get_document_details(request: Request):
         # Get RAG instance to check processing status
         rag = await state.rag_service.get_rag_instance()
 
-        # Get all processed document IDs from LightRAG
+        # Build processed document set by checking each known file's doc_status
         processed_doc_ids = set()
         if rag.lightrag and rag.lightrag.doc_status:
             try:
-                # Get all document status data from storage
-                all_doc_status = await rag.lightrag.doc_status.get_all()
-                for doc_id, doc_data in all_doc_status.items():
-                    # Only consider documents with PROCESSED status
-                    if doc_data.get("status") == "PROCESSED":
-                        # Extract filename from file_path in doc_data
-                        file_path = doc_data.get("file_path", "")
-                        if file_path:
-                            # file_path might be just filename or full path
-                            filename = Path(file_path).name
-                            processed_doc_ids.add(filename)
+                for file_path in upload_dir.rglob("*"):
+                    # Skip directories and hidden files
+                    if not file_path.is_file() or file_path.name.startswith('.'):
+                        continue
+                    # Skip files in .trash
+                    try:
+                        relative = file_path.relative_to(upload_dir)
+                        if '.trash' in relative.parts:
+                            continue
+                    except ValueError:
+                        continue
+                    # LightRAG doc_status uses 'doc-pre-{filename}' as key
+                    doc_pre_id = f"doc-pre-{file_path.name}"
+                    try:
+                        doc_data = await rag.lightrag.doc_status.get_by_id(doc_pre_id)
+                        if doc_data and doc_data.get("status") == "PROCESSED":
+                            processed_doc_ids.add(file_path.name)
+                    except Exception:
+                        # Fail-fast locally but keep listing other files
+                        continue
             except Exception as e:
                 logger.warning(f"Error reading processed documents: {e}")
 
@@ -495,17 +506,33 @@ async def list_processed_documents(request: Request):
 
         # Get document status from LightRAG storage
         try:
-            if rag.lightrag.doc_status:
-                # Get all document status data from storage
-                all_doc_status = await rag.lightrag.doc_status.get_all()
-                for doc_id, doc_data in all_doc_status.items():
-                    processed_docs.append({
-                        "doc_id": doc_id,
-                        "file_path": doc_data.get("file_path", ""),
-                        "status": doc_data.get("status", "unknown"),
-                        "chunks": doc_data.get("chunks", 0),
-                        "processed_at": doc_data.get("processed_at", ""),
-                    })
+            if rag.lightrag and rag.lightrag.doc_status:
+                upload_dir = Path(state.config.upload_dir)
+                if upload_dir.exists():
+                    for file_path in upload_dir.rglob("*"):
+                        # Skip directories and hidden files
+                        if not file_path.is_file() or file_path.name.startswith('.'):
+                            continue
+                        # Skip files in .trash
+                        try:
+                            relative = file_path.relative_to(upload_dir)
+                            if '.trash' in relative.parts:
+                                continue
+                        except ValueError:
+                            continue
+                        doc_pre_id = f"doc-pre-{file_path.name}"
+                        try:
+                            doc_data = await rag.lightrag.doc_status.get_by_id(doc_pre_id)
+                            if doc_data:
+                                processed_docs.append({
+                                    "doc_id": doc_pre_id,
+                                    "file_path": doc_data.get("file_path", str(relative)),
+                                    "status": doc_data.get("status", "unknown"),
+                                    "chunks": doc_data.get("chunks", 0),
+                                    "processed_at": doc_data.get("processed_at", ""),
+                                })
+                        except Exception:
+                            continue
         except Exception as e:
             logger.warning(f"Error reading processed documents: {e}")
 
@@ -729,5 +756,145 @@ async def trigger_index(request: Request):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to trigger index: {str(e)}"
+        )
+
+
+@router.post("/reindex", response_model=ReindexResponse)
+async def reindex_documents(
+    request: Request,
+    req: ReindexRequest
+):
+    """
+    Manually trigger re-indexing for specific files or all files.
+
+    This endpoint allows users to force re-indexing of documents that are already
+    indexed or failed. It changes the status of selected files to 'pending' so they
+    will be processed again by the background indexer.
+
+    Use cases:
+    - Re-index failed documents after fixing configuration issues
+    - Force re-indexing of all documents after upgrading the RAG system
+    - Re-index specific documents that need to be updated in the knowledge graph
+
+    Args:
+        req: ReindexRequest with optional file_paths list and force flag
+
+    Returns:
+        ReindexResponse: Summary of re-indexing operation
+
+    Raises:
+        HTTPException 503: Background indexer not enabled
+        HTTPException 500: Server error during re-indexing
+    """
+    state = request.app.state
+
+    try:
+        # Check if background indexer is available
+        if not hasattr(state, 'background_indexer') or state.background_indexer is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Background indexer is not enabled. Set AUTO_INDEXING_ENABLED=true in configuration."
+            )
+
+        indexer = state.background_indexer
+
+        # Get all current statuses
+        all_statuses = state.index_status_service.list_all_status()
+
+        # Determine which files to re-index
+        if req.file_paths is not None:
+            # Re-index specific files
+            target_statuses = [
+                status for status in all_statuses
+                if status.file_path in req.file_paths
+            ]
+            logger.info(f"Re-indexing {len(target_statuses)} specific files")
+        else:
+            # Re-index all files
+            target_statuses = all_statuses
+            logger.info(f"Re-indexing all {len(target_statuses)} files")
+
+        # Mark files for re-indexing based on force flag
+        files_marked = 0
+        files_skipped = 0
+
+        for status_record in target_statuses:
+            # Skip if already pending or processing
+            if status_record.status in [StatusEnum.PENDING, StatusEnum.PROCESSING]:
+                files_skipped += 1
+                logger.debug(
+                    f"Skipping {status_record.file_path}: already {status_record.status.value}"
+                )
+                continue
+
+            # Check if we should re-index this file
+            should_reindex = False
+
+            if req.force:
+                # Force mode: re-index all files regardless of status
+                should_reindex = True
+            elif status_record.status == StatusEnum.FAILED:
+                # Non-force mode: only re-index failed files
+                should_reindex = True
+            else:
+                # Non-force mode: skip indexed files
+                files_skipped += 1
+                logger.debug(
+                    f"Skipping {status_record.file_path}: status={status_record.status.value}, force=False"
+                )
+                continue
+
+            if should_reindex:
+                # Update status to pending for re-indexing
+                state.index_status_service.update_status_field(
+                    status_record.file_path,
+                    "status",
+                    StatusEnum.PENDING
+                )
+                # Clear error message if it was failed
+                if status_record.status == StatusEnum.FAILED:
+                    state.index_status_service.update_status_field(
+                        status_record.file_path,
+                        "error_message",
+                        None
+                    )
+                files_marked += 1
+                logger.info(f"Marked for re-indexing: {status_record.file_path}")
+
+        # Trigger background processing if any files were marked
+        if files_marked > 0:
+            import asyncio
+            asyncio.create_task(indexer.process_pending_files())
+            logger.info(f"Triggered background processing for {files_marked} files")
+
+        # Build response message
+        if req.file_paths is not None:
+            message = f"Re-index request for {len(req.file_paths)} specific file(s): "
+        else:
+            message = f"Re-index request for all files: "
+
+        message += f"{files_marked} marked for re-indexing, {files_skipped} skipped."
+
+        if files_marked > 0:
+            message += " Background processing started."
+
+        logger.info(
+            f"Re-index operation: marked={files_marked}, skipped={files_skipped}, "
+            f"force={req.force}, specific_files={req.file_paths is not None}"
+        )
+
+        return ReindexResponse(
+            files_marked_for_reindex=files_marked,
+            files_skipped=files_skipped,
+            message=message,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to re-index documents: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to re-index documents: {str(e)}"
         )
 

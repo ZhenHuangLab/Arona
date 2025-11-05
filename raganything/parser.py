@@ -33,13 +33,26 @@ T = TypeVar("T")
 
 
 class MineruExecutionError(Exception):
-    """catch mineru error"""
+    """
+    Exception raised when MinerU command execution fails.
+
+    Attributes:
+        return_code: The exit code from the MinerU process
+        error_msg: Error message(s) - can be a string or list of strings
+    """
 
     def __init__(self, return_code, error_msg):
         self.return_code = return_code
         self.error_msg = error_msg
+
+        # Reason: Handle both string and list error messages properly
+        if isinstance(error_msg, list):
+            formatted_msg = "\n".join(str(msg) for msg in error_msg)
+        else:
+            formatted_msg = str(error_msg)
+
         super().__init__(
-            f"Mineru command failed with return code {return_code}: {error_msg}"
+            f"MinerU command failed with return code {return_code}:\n{formatted_msg}"
         )
 
 
@@ -706,6 +719,32 @@ class MineruParser(Parser):
             stdout_thread.start()
             stderr_thread.start()
 
+            # Reason: Helper function to detect if a line indicates an error or exception
+            def is_error_line(line: str) -> bool:
+                """Check if a line contains error indicators"""
+                line_lower = line.lower()
+                # Check for common error keywords
+                if "error" in line_lower:
+                    return True
+                # Check for Python exception patterns (case-sensitive for exception names)
+                exception_patterns = [
+                    "Error:",  # Generic error pattern
+                    "Exception:",  # Generic exception pattern
+                    "Traceback",  # Python traceback
+                    "AttributeError",
+                    "TypeError",
+                    "ValueError",
+                    "KeyError",
+                    "IndexError",
+                    "RuntimeError",
+                    "FileNotFoundError",
+                    "PermissionError",
+                    "MemoryError",
+                    "ImportError",
+                    "ModuleNotFoundError",
+                ]
+                return any(pattern in line for pattern in exception_patterns)
+
             # Process output in real time
             while process.poll() is None:
                 # Check stdout queue
@@ -725,10 +764,9 @@ class MineruParser(Parser):
                         # Log mineru errors with WARNING level
                         if "warning" in line.lower():
                             logging.warning(f"[MinerU] {line}")
-                        elif "error" in line.lower():
+                        elif is_error_line(line):
                             logging.error(f"[MinerU] {line}")
-                            error_message = line.split("\n")[0]
-                            error_lines.append(error_message)
+                            error_lines.append(line)
                         else:
                             logging.info(f"[MinerU] {line}")
                 except Empty:
@@ -753,10 +791,9 @@ class MineruParser(Parser):
                     prefix, line = stderr_queue.get_nowait()
                     if "warning" in line.lower():
                         logging.warning(f"[MinerU] {line}")
-                    elif "error" in line.lower():
+                    elif is_error_line(line):
                         logging.error(f"[MinerU] {line}")
-                        error_message = line.split("\n")[0]
-                        error_lines.append(error_message)
+                        error_lines.append(line)
                     else:
                         logging.info(f"[MinerU] {line}")
             except Empty:
@@ -769,9 +806,13 @@ class MineruParser(Parser):
             stdout_thread.join(timeout=5)
             stderr_thread.join(timeout=5)
 
+            # Reason: Check for errors even if return code is 0
+            # MinerU sometimes returns 0 even when it fails internally
             if return_code != 0 or error_lines:
-                logging.info("[MinerU] Command executed failed")
-                raise MineruExecutionError(return_code, error_lines)
+                logging.error("[MinerU] Command executed with errors")
+                # Provide detailed error message
+                error_detail = "\n".join(error_lines) if error_lines else "Unknown error"
+                raise MineruExecutionError(return_code, error_detail)
             else:
                 logging.info("[MinerU] Command executed successfully")
 
@@ -913,6 +954,29 @@ class MineruParser(Parser):
             content_list, _ = self._read_output_files(
                 base_output_dir, name_without_suff, method=method
             )
+
+            # Reason: Validate that MinerU actually produced output
+            # MinerU can return exit code 0 even when it fails internally
+            if not content_list:
+                # Check if expected output files exist
+                file_stem_subdir = base_output_dir / name_without_suff
+                expected_json = None
+                if file_stem_subdir.exists():
+                    expected_json = file_stem_subdir / method / f"{name_without_suff}_content_list.json"
+                else:
+                    expected_json = base_output_dir / f"{name_without_suff}_content_list.json"
+
+                error_msg = (
+                    f"MinerU parsing failed: No content was extracted from {pdf_path.name}. "
+                    f"Expected output file: {expected_json}. "
+                    "This may indicate:\n"
+                    "1. The PDF is corrupted or has an unsupported format\n"
+                    "2. MinerU encountered an internal error (check logs above for AttributeError or other exceptions)\n"
+                    "3. The PDF contains no extractable content\n"
+                    "Try using a different parsing method (txt/ocr) or check the PDF file."
+                )
+                raise MineruExecutionError(0, error_msg)
+
             return content_list
 
         except MineruExecutionError:
@@ -1053,6 +1117,27 @@ class MineruParser(Parser):
                 content_list, _ = self._read_output_files(
                     base_output_dir, name_without_suff, method="ocr"
                 )
+
+                # Reason: Validate that MinerU actually produced output
+                if not content_list:
+                    file_stem_subdir = base_output_dir / name_without_suff
+                    expected_json = None
+                    if file_stem_subdir.exists():
+                        expected_json = file_stem_subdir / "ocr" / f"{name_without_suff}_content_list.json"
+                    else:
+                        expected_json = base_output_dir / f"{name_without_suff}_content_list.json"
+
+                    error_msg = (
+                        f"MinerU parsing failed: No content was extracted from {image_path.name}. "
+                        f"Expected output file: {expected_json}. "
+                        "This may indicate:\n"
+                        "1. The image is corrupted or has an unsupported format\n"
+                        "2. MinerU encountered an internal error (check logs above)\n"
+                        "3. The image contains no extractable text\n"
+                        "Try checking the image file or MinerU installation."
+                    )
+                    raise MineruExecutionError(0, error_msg)
+
                 return content_list
 
             except MineruExecutionError:

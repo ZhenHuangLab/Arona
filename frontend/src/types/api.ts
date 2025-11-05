@@ -208,9 +208,18 @@ export interface GraphNode {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * GraphEdge interface
+ *
+ * Note: react-force-graph-2d mutates edge.source and edge.target at runtime:
+ * - Initial state: source and target are strings (node IDs)
+ * - After mutation: source and target become node object references with { id, ...nodeProps }
+ *
+ * The union type accurately represents both states for type safety.
+ */
 export interface GraphEdge {
-  source: string;
-  target: string;
+  source: string | { id: string; [key: string]: any };
+  target: string | { id: string; [key: string]: any };
   label: string;
   weight?: number;
   metadata?: Record<string, unknown>;

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, Calendar, FileType, Trash2 } from 'lucide-react';
+import { FileText, Calendar, FileType, Trash2, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { ConfirmDeleteDialog } from './ConfirmDeleteDialog';
 import { IndexStatusBadge } from './IndexStatusBadge';
 import { useDocuments } from '@/hooks/useDocuments';
 import { useIndexStatus } from '@/hooks/useIndexStatus';
+import { useReindexDocuments } from '@/hooks/useIndexingConfig';
 import type { DocumentInfo } from '@/types/document';
 
 interface DocumentCardProps {
@@ -29,6 +30,7 @@ export function DocumentCard({ document, onClick }: DocumentCardProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const { deleteDocument, isDeleting } = useDocuments();
   const { indexStatuses } = useIndexStatus();
+  const { reindex, isReindexing } = useReindexDocuments();
 
   // Find index status for this document
   const indexStatus = indexStatuses.find(
@@ -65,6 +67,17 @@ export function DocumentCard({ document, onClick }: DocumentCardProps) {
     setDeleteDialogOpen(true);
   };
 
+  // Handle re-index button click (stop propagation to prevent card onClick)
+  const handleReindexClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    reindex({ file_paths: [document.path], force: true });
+  };
+
+  // Determine if re-index button should be shown
+  // Show for indexed or failed files
+  const showReindexButton = indexStatus &&
+    (indexStatus.status === 'indexed' || indexStatus.status === 'failed');
+
   return (
     <>
       <Card
@@ -72,20 +85,37 @@ export function DocumentCard({ document, onClick }: DocumentCardProps) {
         onClick={onClick}
       >
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-start gap-2 text-base pr-8">
+          <CardTitle className="flex items-start gap-2 text-base pr-20">
             <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
             <span className="flex-1 break-words">{document.name}</span>
           </CardTitle>
-          {/* Delete button - positioned absolute top-right */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-4 right-4 h-8 w-8 text-muted-foreground hover:text-destructive"
-            onClick={handleDeleteClick}
-            aria-label={`Delete ${document.name}`}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {/* Action buttons - positioned absolute top-right */}
+          <div className="absolute top-4 right-4 flex items-center gap-1">
+            {/* Re-index button - show for indexed or failed files */}
+            {showReindexButton && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-blue-600"
+                onClick={handleReindexClick}
+                disabled={isReindexing}
+                aria-label={`Re-index ${document.name}`}
+                title="Re-index this document"
+              >
+                <RefreshCw className={`h-4 w-4 ${isReindexing ? 'animate-spin' : ''}`} />
+              </Button>
+            )}
+            {/* Delete button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              onClick={handleDeleteClick}
+              aria-label={`Delete ${document.name}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </CardHeader>
       <CardContent className="space-y-2">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">

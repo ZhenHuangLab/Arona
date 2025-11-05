@@ -122,3 +122,43 @@ class TriggerIndexResponse(BaseModel):
         description="Human-readable summary of the operation"
     )
 
+
+class ReindexRequest(BaseModel):
+    """
+    Request model for manual re-indexing operation.
+
+    Used by POST /api/documents/reindex endpoint.
+    """
+
+    file_paths: Optional[list[str]] = Field(
+        default=None,
+        description="List of file paths to re-index. If None, re-index all files."
+    )
+    force: bool = Field(
+        default=False,
+        description="If True, re-index even if status is already 'indexed'. If False, only re-index 'failed' files."
+    )
+
+
+class ReindexResponse(BaseModel):
+    """
+    Response model for manual re-indexing operation.
+
+    Returned by POST /api/documents/reindex endpoint.
+    """
+
+    files_marked_for_reindex: int = Field(
+        ...,
+        description="Number of files marked for re-indexing (status changed to pending)",
+        ge=0
+    )
+    files_skipped: int = Field(
+        ...,
+        description="Number of files skipped (not found or already pending/processing)",
+        ge=0
+    )
+    message: str = Field(
+        ...,
+        description="Human-readable summary of the operation"
+    )
+

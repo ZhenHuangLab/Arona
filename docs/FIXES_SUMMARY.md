@@ -77,7 +77,7 @@ Validates backend configuration and displays:
 
 **Usage:**
 ```bash
-python scripts/check_config.py
+python3 scripts/check_config.py
 ```
 
 ### 2. Environment Setup Script
@@ -133,7 +133,7 @@ Added sections:
 
 3. **Verify configuration:**
    ```bash
-   python scripts/check_config.py
+   python3 scripts/check_config.py
    ```
 
 4. **Start backend:**
@@ -164,7 +164,7 @@ If you're experiencing the issues:
 
 3. **Verify:**
    ```bash
-   python scripts/check_config.py
+   python3 scripts/check_config.py
    ```
 
 ---

@@ -46,10 +46,21 @@ export function GraphCanvas({
   onNodeSelect,
 }: GraphCanvasProps) {
   // Ref to prevent unnecessary re-renders that cause graph to disappear
-  const fgRef = useRef<any>();
+  const fgRef = useRef<any>(null);
 
   // Tooltip state
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+
+  // Track global mouse position for tooltips (using ref to avoid recreating callbacks)
+  const mousePosRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      mousePosRef.current = { x: e.clientX, y: e.clientY };
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   /**
    * Compute node degrees (number of connections) for identifying super nodes
@@ -168,13 +179,16 @@ export function GraphCanvas({
   /**
    * Node hover handler for rich tooltips
    * Shows node metadata including type, description, and custom metadata
+   *
+   * Note: react-force-graph-2d callback signature is (node, previousNode), not (node, event)
+   * We use global mouse tracking (mousePosRef) for tooltip positioning
    */
-  const handleNodeHover = useCallback((node: any | null, event: MouseEvent) => {
+  const handleNodeHover = useCallback((node: any | null, _previousNode: any) => {
     if (node) {
       setTooltip({
         type: 'node',
-        x: event.clientX,
-        y: event.clientY,
+        x: mousePosRef.current.x,
+        y: mousePosRef.current.y,
         content: {
           label: node.label || node.id,
           nodeType: node.type,
@@ -190,13 +204,16 @@ export function GraphCanvas({
   /**
    * Link hover handler for edge tooltips
    * Shows relationship information including source, target, and weight
+   *
+   * Note: react-force-graph-2d callback signature is (link, previousLink), not (link, event)
+   * We use global mouse tracking (mousePosRef) for tooltip positioning
    */
-  const handleLinkHover = useCallback((link: any | null, event: MouseEvent) => {
+  const handleLinkHover = useCallback((link: any | null, _previousLink: any) => {
     if (link) {
       setTooltip({
         type: 'link',
-        x: event.clientX,
-        y: event.clientY,
+        x: mousePosRef.current.x,
+        y: mousePosRef.current.y,
         content: {
           label: link.label || 'related_to',
           source: typeof link.source === 'object' ? link.source.label : link.source,
@@ -343,7 +360,7 @@ export function GraphCanvas({
       <div className="border rounded-lg bg-background overflow-hidden relative">
         <ForceGraph2D
           ref={fgRef}
-          graphData={graphData}
+          graphData={graphData as any}
           width={width}
           height={height}
           nodeLabel={() => ''} // Disable default tooltip (we use custom)

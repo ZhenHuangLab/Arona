@@ -303,10 +303,10 @@ uv sync --all-extras                 # All optional features
 mineru --version
 
 # Check backend configuration (if using backend API)
-python scripts/check_config.py
+python3 scripts/check_config.py
 
 # Check Arona installation
-python -c "from raganything import RAGAnything; rag = RAGAnything(); print('✅ MinerU installed properly' if rag.check_parser_installation() else '❌ MinerU installation issue')"
+python3 -c "from raganything import RAGAnything; rag = RAGAnything(); print('✅ MinerU installed properly' if rag.check_parser_installation() else '❌ MinerU installation issue')"
 ```
 
 Models are downloaded automatically on first use. For manual download, refer to [MinerU Model Source Configuration](https://github.com/opendatalab/MinerU/blob/master/README.md#22-model-source-configuration).
@@ -315,7 +315,7 @@ Models are downloaded automatically on first use. For manual download, refer to 
 
 If you encounter issues:
 - See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for common problems and solutions
-- Run `python scripts/check_config.py` to validate your configuration
+- Run `python3 scripts/check_config.py` to validate your configuration
 - Check that environment variables are properly set (especially `HF_HOME` for MinerU)
 
 ### Usage Examples

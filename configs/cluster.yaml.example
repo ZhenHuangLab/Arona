@@ -1,4 +1,4 @@
-# RAG-Anything Cluster Configuration Example
+# Arona Cluster Configuration Example
 #
 # IMPORTANT: This file is for DOCUMENTATION ONLY.
 # The cluster_rag_worker.py script uses ENVIRONMENT VARIABLES, not YAML config.
@@ -142,7 +142,7 @@ cluster:
 
   # Log output directory
   # Environment variable: LOG_ROOT
-  log_root: "/ShareS/UserHome/user007/software/RAG-Anything/logs/slurm"
+  log_root: "/ShareS/UserHome/user007/software/Arona/logs/slurm"
 
   # Worker mode: ingest or query
   # Environment variable: RAG_WORKER_MODE

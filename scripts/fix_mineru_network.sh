@@ -152,7 +152,7 @@ if [ "${MODEL_EXISTS}" = true ] || [ "${RECOMMENDED_SOURCE}" = "local" ]; then
     echo "Next steps:"
     echo "1. Restart your backend:"
     echo "   source .env.backend"
-    echo "   python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"
+    echo "   python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"
     echo ""
     echo "2. Test with a PDF document"
 else

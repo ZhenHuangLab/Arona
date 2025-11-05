@@ -165,12 +165,14 @@ class BackendConfig:
     vision: Optional[ModelConfig] = None
     reranker: Optional[RerankerConfig] = None
     
-    # Storage configuration
+    # Storage configuration (will be converted to absolute paths in from_env)
     working_dir: str = "./rag_storage"
     upload_dir: str = "./uploads"
     
     # RAGAnything configuration
     parser: str = "mineru"  # or "docling"
+    enable_parser_fallback: bool = True  # Fallback to alternative parser on failure
+    fallback_parser: str = "docling"  # Parser to use when primary fails
     enable_image_processing: bool = True
     enable_table_processing: bool = True
     enable_equation_processing: bool = True
@@ -203,9 +205,9 @@ class BackendConfig:
         if os.getenv("RERANKER_ENABLED", "true").lower() == "true":
             reranker = RerankerConfig.from_env()
         
-        # Storage paths
-        working_dir = os.getenv("WORKING_DIR", "./rag_storage")
-        upload_dir = os.getenv("UPLOAD_DIR", "./uploads")
+        # Storage paths - convert to absolute paths
+        working_dir = os.path.abspath(os.getenv("WORKING_DIR", "./rag_storage"))
+        upload_dir = os.path.abspath(os.getenv("UPLOAD_DIR", "./uploads"))
         
         # RAGAnything settings
         parser = os.getenv("PARSER", "mineru")
@@ -298,8 +300,8 @@ class BackendConfig:
             embedding=embedding,
             vision=vision,
             reranker=reranker,
-            working_dir=data.get("working_dir", "./rag_storage"),
-            upload_dir=data.get("upload_dir", "./uploads"),
+            working_dir=os.path.abspath(data.get("working_dir", "./rag_storage")),
+            upload_dir=os.path.abspath(data.get("upload_dir", "./uploads")),
             parser=data.get("parser", "mineru"),
             enable_image_processing=data.get("enable_image_processing", True),
             enable_table_processing=data.get("enable_table_processing", True),
