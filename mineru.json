@@ -31,8 +31,8 @@
         }
     },
     "models-dir": {
-        "pipeline": "/ShareS/UserHome/user007/.cache/modelscope/hub/models/OpenDataLab/PDF-Extract-Kit-1___0",
-        "vlm": "/ShareS/UserHome/user007/.cache/modelscope/hub/models/OpenDataLab/MinerU2___5-2509-1___2B"
+        "pipeline": "/eml7/zhuang/.cache/modelscope/models/OpenDataLab/PDF-Extract-Kit-1___0",
+        "vlm": "/eml7/zhuang/.cache/modelscope/models/OpenDataLab/MinerU2___5-2509-1___2B"
     },
     "config_version": "1.3.1"
 }

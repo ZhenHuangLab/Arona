@@ -3,7 +3,7 @@
 
 set -e
 
-echo "Starting RAG-Anything (Backend + Frontend)..."
+echo "Starting Arona (Backend + Frontend)..."
 
 # Load environment
 if [ -f .env.backend ]; then

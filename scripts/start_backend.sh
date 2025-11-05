@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start RAG-Anything Backend Server
+# Start Arona Backend Server
 
 set -e
 

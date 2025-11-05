@@ -1,12 +1,12 @@
 #!/bin/bash
-# Setup Environment Variables for RAG-Anything
+# Setup Environment Variables for Arona
 #
 # This script helps you set up the required environment variables
-# for running RAG-Anything backend with MinerU.
+# for running Arona backend with MinerU.
 
 set -e
 
-echo "RAG-Anything Environment Setup"
+echo "Arona Environment Setup"
 echo "=============================="
 echo ""
 
@@ -166,7 +166,7 @@ echo "✓ Backed up $RC_FILE to $BACKUP_FILE"
 
 # Add to RC file
 echo "" >> "$RC_FILE"
-echo "# RAG-Anything Environment Variables (added by setup_env.sh)" >> "$RC_FILE"
+echo "# Arona Environment Variables (added by setup_env.sh)" >> "$RC_FILE"
 echo "export HF_HOME=\"$HF_HOME_VALUE\"" >> "$RC_FILE"
 echo "export HF_HUB_CACHE=\"$HF_HUB_CACHE_VALUE\"" >> "$RC_FILE"
 echo "export MINERU_MODEL_SOURCE=\"$MINERU_SOURCE_VALUE\"" >> "$RC_FILE"

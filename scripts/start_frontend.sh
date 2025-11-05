@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start RAG-Anything React Frontend
+# Start Arona React Frontend
 
 set -e
 
@@ -11,7 +11,7 @@ FRONTEND_DIR="$PROJECT_ROOT/frontend"
 # Change to frontend directory
 cd "$FRONTEND_DIR"
 
-echo "RAG-Anything React Frontend"
+echo "Arona React Frontend"
 echo "============================"
 echo ""
 
