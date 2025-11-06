@@ -819,13 +819,24 @@ async def reindex_documents(
         files_skipped = 0
 
         for status_record in target_statuses:
-            # Skip if already pending or processing
-            if status_record.status in [StatusEnum.PENDING, StatusEnum.PROCESSING]:
+            # Skip if already pending (always skip to avoid duplicate processing)
+            if status_record.status == StatusEnum.PENDING:
                 files_skipped += 1
                 logger.debug(
                     f"Skipping {status_record.file_path}: already {status_record.status.value}"
                 )
                 continue
+
+            # For PROCESSING status: skip in non-force mode, reset in force mode
+            if status_record.status == StatusEnum.PROCESSING:
+                if not req.force:
+                    files_skipped += 1
+                    logger.debug(
+                        f"Skipping {status_record.file_path}: already {status_record.status.value}"
+                    )
+                    continue
+                # In force mode, reset PROCESSING to PENDING to retry
+                # (file might be stuck in processing state)
 
             # Check if we should re-index this file
             should_reindex = False
