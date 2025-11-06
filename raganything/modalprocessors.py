@@ -966,15 +966,17 @@ class ImageModalProcessor(BaseModalProcessor):
 
         except Exception as e:
             logger.error(f"Error processing image content: {e}")
-            # Fallback processing
+            # Fallback processing - return 3 values to match expected signature
             fallback_entity = {
                 "entity_name": entity_name
                 if entity_name
                 else f"image_{compute_mdhash_id(str(modal_content))}",
                 "entity_type": "image",
                 "summary": f"Image content: {str(modal_content)[:100]}",
+                "chunk_id": None,  # Add chunk_id for consistency
             }
-            return str(modal_content), fallback_entity
+            # Return empty chunk_results list as third value
+            return str(modal_content), fallback_entity, []
 
     def _parse_response(
         self, response: str, entity_name: str = None
@@ -1161,15 +1163,17 @@ class TableModalProcessor(BaseModalProcessor):
 
         except Exception as e:
             logger.error(f"Error processing table content: {e}")
-            # Fallback processing
+            # Fallback processing - return 3 values to match expected signature
             fallback_entity = {
                 "entity_name": entity_name
                 if entity_name
                 else f"table_{compute_mdhash_id(str(modal_content))}",
                 "entity_type": "table",
                 "summary": f"Table content: {str(modal_content)[:100]}",
+                "chunk_id": None,  # Add chunk_id for consistency
             }
-            return str(modal_content), fallback_entity
+            # Return empty chunk_results list as third value
+            return str(modal_content), fallback_entity, []
 
     def _parse_table_response(
         self, response: str, entity_name: str = None
@@ -1346,15 +1350,17 @@ class EquationModalProcessor(BaseModalProcessor):
 
         except Exception as e:
             logger.error(f"Error processing equation content: {e}")
-            # Fallback processing
+            # Fallback processing - return 3 values to match expected signature
             fallback_entity = {
                 "entity_name": entity_name
                 if entity_name
                 else f"equation_{compute_mdhash_id(str(modal_content))}",
                 "entity_type": "equation",
                 "summary": f"Equation content: {str(modal_content)[:100]}",
+                "chunk_id": None,  # Add chunk_id for consistency
             }
-            return str(modal_content), fallback_entity
+            # Return empty chunk_results list as third value
+            return str(modal_content), fallback_entity, []
 
     def _parse_equation_response(
         self, response: str, entity_name: str = None
@@ -1509,15 +1515,17 @@ class GenericModalProcessor(BaseModalProcessor):
 
         except Exception as e:
             logger.error(f"Error processing {content_type} content: {e}")
-            # Fallback processing
+            # Fallback processing - return 3 values to match expected signature
             fallback_entity = {
                 "entity_name": entity_name
                 if entity_name
                 else f"{content_type}_{compute_mdhash_id(str(modal_content))}",
                 "entity_type": content_type,
                 "summary": f"{content_type} content: {str(modal_content)[:100]}",
+                "chunk_id": None,  # Add chunk_id for consistency
             }
-            return str(modal_content), fallback_entity
+            # Return empty chunk_results list as third value
+            return str(modal_content), fallback_entity, []
 
     def _parse_generic_response(
         self, response: str, entity_name: str = None, content_type: str = "content"
