@@ -23,8 +23,9 @@ pip install -r requirements-frontend.txt
 
 ### 2. Configure Environment
 
+**Backend Configuration:**
 ```bash
-cp .env.backend.example .env.backend
+cp env.backend.example .env.backend
 ```
 
 Edit `.env.backend` with your API keys:
@@ -40,6 +41,15 @@ EMBEDDING_MODEL_NAME=text-embedding-3-large
 EMBEDDING_API_KEY=sk-your-api-key-here
 EMBEDDING_EMBEDDING_DIM=3072
 ```
+
+**Frontend Configuration (Optional):**
+```bash
+cd frontend
+cp .env.example .env
+cd ..
+```
+
+> **📖 For detailed configuration options, see [Configuration Guide](docs/CONFIGURATION.md)**
 
 ### 3. Start Services
 

@@ -23,13 +23,29 @@ pip install -e .
 
 ## Step 2: Configure Environment
 
+### Backend Configuration
+
 ```bash
 # Copy example environment file
-cp .env.backend.example .env.backend
+cp env.backend.example .env.backend
 
 # Edit .env.backend with your configuration
 nano .env.backend
 ```
+
+### Frontend Configuration (Optional)
+
+```bash
+# Copy frontend example file
+cd frontend
+cp .env.example .env
+
+# Edit if needed (default values work for local development)
+nano .env
+cd ..
+```
+
+> **Note**: For detailed configuration options, see [Configuration Guide](./CONFIGURATION.md)
 
 ### Minimal Configuration (OpenAI)
 
