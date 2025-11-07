@@ -937,14 +937,36 @@ class MineruParser(Parser):
 
             base_output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Run mineru command
-            self._run_mineru_command(
-                input_path=pdf_path,
-                output_dir=base_output_dir,
-                method=method,
-                lang=lang,
-                **kwargs,
-            )
+            # Run mineru command with automatic CPU fallback for GPU errors
+            try:
+                self._run_mineru_command(
+                    input_path=pdf_path,
+                    output_dir=base_output_dir,
+                    method=method,
+                    lang=lang,
+                    **kwargs,
+                )
+            except MineruExecutionError as e:
+                # Check if error is GPU-related (kernel image not available)
+                error_msg = str(e).lower()
+                if "no kernel image is available" in error_msg or "cuda error" in error_msg:
+                    logging.warning(
+                        f"[MinerU] GPU error detected (likely architecture incompatibility). "
+                        f"Falling back to CPU mode. Original error: {str(e)[:200]}"
+                    )
+                    # Retry with CPU
+                    kwargs_cpu = kwargs.copy()
+                    kwargs_cpu["device"] = "cpu"
+                    self._run_mineru_command(
+                        input_path=pdf_path,
+                        output_dir=base_output_dir,
+                        method=method,
+                        lang=lang,
+                        **kwargs_cpu,
+                    )
+                else:
+                    # Re-raise if not GPU-related
+                    raise
 
             # Read the generated output files
             backend = kwargs.get("backend", "")

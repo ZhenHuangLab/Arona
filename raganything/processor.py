@@ -326,6 +326,12 @@ class ProcessorMixin:
                 f"Using {self.config.parser} parser with method: {parse_method}"
             )
 
+            # Add device parameter from config if not already specified (for MinerU)
+            if self.config.parser == "mineru" and "device" not in kwargs:
+                if hasattr(self.config, "mineru_device") and self.config.mineru_device:
+                    kwargs["device"] = self.config.mineru_device
+                    self.logger.info(f"Using configured MinerU device: {self.config.mineru_device}")
+
             if ext in [".pdf"]:
                 self.logger.info("Detected PDF file, using parser for PDF...")
                 content_list = await asyncio.to_thread(

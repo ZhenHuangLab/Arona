@@ -176,6 +176,7 @@ class BackendConfig:
     enable_image_processing: bool = True
     enable_table_processing: bool = True
     enable_equation_processing: bool = True
+    mineru_device: Optional[str] = None  # Device for MinerU (cpu, cuda, cuda:0)
 
     # Background indexing configuration
     auto_indexing_enabled: bool = True
@@ -214,6 +215,7 @@ class BackendConfig:
         enable_image = os.getenv("ENABLE_IMAGE_PROCESSING", "true").lower() == "true"
         enable_table = os.getenv("ENABLE_TABLE_PROCESSING", "true").lower() == "true"
         enable_equation = os.getenv("ENABLE_EQUATION_PROCESSING", "true").lower() == "true"
+        mineru_device = os.getenv("MINERU_DEVICE")  # None means auto-detect
 
         # Background indexing settings
         auto_indexing_enabled = os.getenv("AUTO_INDEXING_ENABLED", "true").lower() == "true"
@@ -236,6 +238,7 @@ class BackendConfig:
             enable_image_processing=enable_image,
             enable_table_processing=enable_table,
             enable_equation_processing=enable_equation,
+            mineru_device=mineru_device,
             auto_indexing_enabled=auto_indexing_enabled,
             indexing_scan_interval=indexing_scan_interval,
             indexing_max_files_per_batch=indexing_max_files_per_batch,
