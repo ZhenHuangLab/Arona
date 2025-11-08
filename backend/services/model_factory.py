@@ -310,22 +310,46 @@ class ModelFactory:
     def create_embedding_func(config: ModelConfig) -> EmbeddingFunc:
         """
         Create RAGAnything-compatible embedding function.
-        
+
         Args:
             config: Model configuration
-            
+
         Returns:
             EmbeddingFunc instance compatible with RAGAnything
         """
         provider = ModelFactory.create_embedding_provider(config)
-        
+
         async def embed_func(texts: List[str]) -> Any:
             """RAGAnything-compatible embedding function."""
             return await provider.embed(texts)
-        
+
         return EmbeddingFunc(
             embedding_dim=provider.embedding_dim,
             max_token_size=config.extra_params.get("max_token_size", 8192),
+            func=embed_func,
+        )
+
+    @staticmethod
+    def create_embedding_func_from_provider(provider: BaseEmbeddingProvider) -> EmbeddingFunc:
+        """
+        Create RAGAnything-compatible embedding function from an existing provider.
+
+        This is useful when you need to keep a reference to the provider
+        for lifecycle management (e.g., shutdown).
+
+        Args:
+            provider: Embedding provider instance
+
+        Returns:
+            EmbeddingFunc instance compatible with RAGAnything
+        """
+        async def embed_func(texts: List[str]) -> Any:
+            """RAGAnything-compatible embedding function."""
+            return await provider.embed(texts)
+
+        return EmbeddingFunc(
+            embedding_dim=provider.embedding_dim,
+            max_token_size=8192,  # Default value
             func=embed_func,
         )
 

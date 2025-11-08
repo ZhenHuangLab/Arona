@@ -30,28 +30,31 @@ class RAGService:
     def __init__(self, config: BackendConfig):
         """
         Initialize RAG service.
-        
+
         Args:
             config: Backend configuration
         """
         self.config = config
         self._rag_instance: Optional[RAGAnything] = None
         self._lock = asyncio.Lock()
-        
+
+        # Create embedding provider (save reference for shutdown)
+        self.embedding_provider = ModelFactory.create_embedding_provider(config.embedding)
+
         # Create model functions from config
         self.llm_func = ModelFactory.create_llm_func(config.llm)
-        self.embedding_func = ModelFactory.create_embedding_func(config.embedding)
-        
+        self.embedding_func = ModelFactory.create_embedding_func_from_provider(self.embedding_provider)
+
         # Optional vision function
         self.vision_func = None
         if config.vision:
             self.vision_func = ModelFactory.create_vision_func(config.vision)
-        
+
         # Optional reranker
         self.reranker_func = None
         if config.reranker:
             self.reranker_func = ModelFactory.create_reranker(config.reranker)
-        
+
         logger.info("RAG service initialized with configuration:")
         logger.info(f"  LLM: {config.llm.provider}/{config.llm.model_name}")
         logger.info(f"  Embedding: {config.embedding.provider}/{config.embedding.model_name}")
@@ -250,6 +253,20 @@ class RAGService:
                 "enabled": True,
                 "provider": self.config.reranker.provider,
             }
-        
+
         return status
+
+    async def shutdown(self) -> None:
+        """
+        Gracefully shutdown the RAG service.
+
+        Stops all background tasks and releases resources.
+        """
+        logger.info("Shutting down RAG service...")
+
+        # Shutdown embedding provider if it has a shutdown method
+        if hasattr(self.embedding_provider, 'shutdown'):
+            await self.embedding_provider.shutdown()
+
+        logger.info("RAG service shutdown complete")
 

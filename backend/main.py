@@ -104,6 +104,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error stopping background indexer: {e}", exc_info=True)
 
+    # Shutdown RAG service (including embedding provider)
+    if hasattr(app.state, 'rag_service'):
+        logger.info("Shutting down RAG service...")
+        try:
+            await app.state.rag_service.shutdown()
+        except Exception as e:
+            logger.error(f"Error shutting down RAG service: {e}", exc_info=True)
+
 
 # Create FastAPI app
 app = FastAPI(
