@@ -164,6 +164,20 @@ fi
 echo "✓ Python version check passed (>= 3.10)"
 echo ""
 
+# Ensure CUDA runtime libraries are discoverable for PyTorch (Pascal, cu118)
+# Prefer venv Torch libs; keep user LD_LIBRARY_PATH intact
+TORCH_LIB_DIR="$PROJECT_ROOT/.venv/lib/python${PYTHON_MAJOR}.${PYTHON_MINOR}/site-packages/torch/lib"
+if [ -d "$TORCH_LIB_DIR" ]; then
+    case ":$LD_LIBRARY_PATH:" in
+        *":$TORCH_LIB_DIR:"*) ;;
+        *)
+            export LD_LIBRARY_PATH="$TORCH_LIB_DIR:${LD_LIBRARY_PATH}"
+            echo "LD_LIBRARY_PATH updated with Torch CUDA libs:"
+            echo "  $TORCH_LIB_DIR"
+            ;;
+    esac
+fi
+
 echo "RAG-Anything Backend Server"
 echo "============================"
 echo ""
@@ -212,4 +226,3 @@ echo ""
 # Start backend server
 # Note: Backend will load .env.backend automatically
 ${PYTHON_CMD} -m backend.main --host "$HOST" --port "$PORT" "$@"
-

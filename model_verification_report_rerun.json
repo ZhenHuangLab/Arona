@@ -1,0 +1,149 @@
+{
+  "models": {
+    "Qwen/Qwen3-Embedding-4B": {
+      "model_id": "Qwen/Qwen3-Embedding-4B",
+      "model_type": "embedding",
+      "device": "cuda:0",
+      "basic_test": {
+        "model_id": "Qwen/Qwen3-Embedding-4B",
+        "device": "cuda:0",
+        "dtype": "torch.float16",
+        "attn_implementation": "sdpa",
+        "success": true,
+        "attn_backend_detected": null,
+        "load_time_s": 15.021116495132446,
+        "memory_used_gb": 7.543890476226807,
+        "memory_reserved_used_gb": 0.0,
+        "warmup_memory_gb": 7.551825046539307,
+        "peak_memory_gb": 7.553938865661621,
+        "peak_memory_reserved_gb": 7.568359375,
+        "inference_time_ms": 150.59638023376465,
+        "embedding_dim": 2560
+      },
+      "batch_test": {
+        "model_id": "Qwen/Qwen3-Embedding-4B",
+        "model_type": "embedding",
+        "device": "cuda:0",
+        "batch_results": {
+          "1": {
+            "inference_time_s": 0.1574108600616455,
+            "throughput_texts_per_sec": 6.3528018308798915,
+            "memory_used_gb": 0.0012688636779785156,
+            "memory_reserved_used_gb": 0.0,
+            "output_shape": [
+              1,
+              2560
+            ]
+          },
+          "8": {
+            "inference_time_s": 0.1423344612121582,
+            "throughput_texts_per_sec": 56.205643607808454,
+            "memory_used_gb": 0.010120868682861328,
+            "memory_reserved_used_gb": 0.009765625,
+            "output_shape": [
+              8,
+              2560
+            ]
+          },
+          "16": {
+            "inference_time_s": 0.23762059211730957,
+            "throughput_texts_per_sec": 67.33423167341091,
+            "memory_used_gb": 0.023613452911376953,
+            "memory_reserved_used_gb": 0.0234375,
+            "output_shape": [
+              16,
+              2560
+            ]
+          },
+          "32": {
+            "inference_time_s": 0.39800262451171875,
+            "throughput_texts_per_sec": 80.40147986274849,
+            "memory_used_gb": 0.048331260681152344,
+            "memory_reserved_used_gb": 0.056640625,
+            "output_shape": [
+              32,
+              2560
+            ]
+          }
+        },
+        "success": true
+      }
+    },
+    "Qwen/Qwen3-Reranker-4B": {
+      "model_id": "Qwen/Qwen3-Reranker-4B",
+      "model_type": "reranker",
+      "device": "cuda:1",
+      "basic_test": {
+        "model_id": "Qwen/Qwen3-Reranker-4B",
+        "device": "cuda:1",
+        "dtype": "torch.float16",
+        "attn_implementation": "sdpa",
+        "success": true,
+        "load_time_s": 6.327007293701172,
+        "memory_used_gb": 7.543919086456299,
+        "warmup_memory_gb": 7.552541732788086,
+        "peak_memory_gb": 7.55613374710083,
+        "memory_reserved_used_gb": 0.0,
+        "peak_memory_reserved_gb": 7.5703125,
+        "inference_time_ms": 87.7542495727539,
+        "test_score": 3.712890625
+      },
+      "batch_test": {
+        "model_id": "Qwen/Qwen3-Reranker-4B",
+        "model_type": "reranker",
+        "device": "cuda:1",
+        "batch_results": {
+          "1": {
+            "inference_time_s": 0.13943910598754883,
+            "throughput_docs_per_sec": 7.171589296400787,
+            "memory_used_gb": 0.0029587745666503906,
+            "memory_reserved_used_gb": 0.001953125,
+            "num_scores": 1
+          },
+          "4": {
+            "inference_time_s": 0.09607648849487305,
+            "throughput_docs_per_sec": 41.6334949649357,
+            "memory_used_gb": 0.01300668716430664,
+            "memory_reserved_used_gb": 0.01171875,
+            "num_scores": 4
+          },
+          "8": {
+            "inference_time_s": 0.09283185005187988,
+            "throughput_docs_per_sec": 86.17731948172023,
+            "memory_used_gb": 0.023613452911376953,
+            "memory_reserved_used_gb": 0.01953125,
+            "num_scores": 8
+          },
+          "16": {
+            "inference_time_s": 0.19005537033081055,
+            "throughput_docs_per_sec": 84.18599259863262,
+            "memory_used_gb": 0.051537513732910156,
+            "memory_reserved_used_gb": 0.052734375,
+            "num_scores": 16
+          }
+        },
+        "success": true
+      }
+    },
+    "Alibaba-NLP/gme-Qwen2-VL-2B-Instruct": {
+      "model_id": "Alibaba-NLP/gme-Qwen2-VL-2B-Instruct",
+      "model_type": "multimodal",
+      "device": "cuda:2",
+      "basic_test": {
+        "model_id": "Alibaba-NLP/gme-Qwen2-VL-2B-Instruct",
+        "device": "cuda:2",
+        "dtype": "torch.float16",
+        "attn_implementation": "sdpa",
+        "success": false,
+        "error": "ModuleNotFoundError: No module named 'custom_st'"
+      },
+      "batch_test": {
+        "model_id": "Alibaba-NLP/gme-Qwen2-VL-2B-Instruct",
+        "model_type": "multimodal",
+        "device": "cuda:2",
+        "batch_results": {},
+        "error": "ModuleNotFoundError: No module named 'custom_st'"
+      }
+    }
+  }
+}

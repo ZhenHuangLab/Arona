@@ -1,0 +1,131 @@
+{
+  "models": {
+    "Qwen/Qwen3-Embedding-4B": {
+      "model_id": "Qwen/Qwen3-Embedding-4B",
+      "model_type": "embedding",
+      "device": "cuda:0",
+      "basic_test": {
+        "model_id": "Qwen/Qwen3-Embedding-4B",
+        "device": "cuda:0",
+        "dtype": "torch.float16",
+        "attn_implementation": "sdpa",
+        "success": false,
+        "error": "RuntimeError: Invalid device argument 0: did you call init?"
+      },
+      "batch_test": {
+        "model_id": "Qwen/Qwen3-Embedding-4B",
+        "model_type": "embedding",
+        "device": "cuda:0",
+        "batch_results": {
+          "1": {
+            "inference_time_s": 0.5589053630828857,
+            "throughput_texts_per_sec": 1.789211673482725,
+            "memory_used_gb": 0.009203433990478516,
+            "output_shape": [
+              1,
+              2560
+            ]
+          },
+          "8": {
+            "inference_time_s": 0.14426827430725098,
+            "throughput_texts_per_sec": 55.452247130663274,
+            "memory_used_gb": 0.010120868682861328,
+            "output_shape": [
+              8,
+              2560
+            ]
+          },
+          "16": {
+            "inference_time_s": 0.2361307144165039,
+            "throughput_texts_per_sec": 67.75908013295584,
+            "memory_used_gb": 0.023613452911376953,
+            "output_shape": [
+              16,
+              2560
+            ]
+          },
+          "32": {
+            "inference_time_s": 0.401151180267334,
+            "throughput_texts_per_sec": 79.77042465305637,
+            "memory_used_gb": 0.047568321228027344,
+            "output_shape": [
+              32,
+              2560
+            ]
+          }
+        },
+        "success": true
+      }
+    },
+    "Qwen/Qwen3-Reranker-4B": {
+      "model_id": "Qwen/Qwen3-Reranker-4B",
+      "model_type": "reranker",
+      "device": "cuda:1",
+      "basic_test": {
+        "model_id": "Qwen/Qwen3-Reranker-4B",
+        "device": "cuda:1",
+        "dtype": "torch.float16",
+        "attn_implementation": "sdpa",
+        "success": true,
+        "load_time_s": 6.222118854522705,
+        "memory_used_gb": 7.543919086456299,
+        "warmup_memory_gb": 7.552541732788086,
+        "peak_memory_gb": 7.55613374710083,
+        "inference_time_ms": 88.33527565002441,
+        "test_score": 2.6875
+      },
+      "batch_test": {
+        "model_id": "Qwen/Qwen3-Reranker-4B",
+        "model_type": "reranker",
+        "device": "cuda:1",
+        "batch_results": {
+          "1": {
+            "inference_time_s": 0.13922429084777832,
+            "throughput_docs_per_sec": 7.182654649635499,
+            "memory_used_gb": 0.0029587745666503906,
+            "num_scores": 1
+          },
+          "4": {
+            "inference_time_s": 0.5496957302093506,
+            "throughput_docs_per_sec": 7.276752901967435,
+            "memory_used_gb": 0.0029578208923339844,
+            "num_scores": 4
+          },
+          "8": {
+            "inference_time_s": 1.1006124019622803,
+            "throughput_docs_per_sec": 7.268680587041189,
+            "memory_used_gb": 0.0029578208923339844,
+            "num_scores": 8
+          },
+          "16": {
+            "inference_time_s": 2.201904058456421,
+            "throughput_docs_per_sec": 7.266438307587444,
+            "memory_used_gb": 0.003306865692138672,
+            "num_scores": 16
+          }
+        },
+        "success": true
+      }
+    },
+    "Alibaba-NLP/gme-Qwen2-VL-2B-Instruct": {
+      "model_id": "Alibaba-NLP/gme-Qwen2-VL-2B-Instruct",
+      "model_type": "multimodal",
+      "device": "cuda:2",
+      "basic_test": {
+        "model_id": "Alibaba-NLP/gme-Qwen2-VL-2B-Instruct",
+        "device": "cuda:2",
+        "dtype": "torch.float16",
+        "attn_implementation": "sdpa",
+        "success": false,
+        "error": "ModuleNotFoundError: No module named 'custom_st'"
+      },
+      "batch_test": {
+        "model_id": "Alibaba-NLP/gme-Qwen2-VL-2B-Instruct",
+        "model_type": "multimodal",
+        "device": "cuda:2",
+        "batch_results": {},
+        "error": "ModuleNotFoundError: No module named 'custom_st'"
+      }
+    }
+  }
+}
