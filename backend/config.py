@@ -30,6 +30,7 @@ class ModelType(str, Enum):
     LLM = "llm"              # Text generation
     VISION = "vision"        # Vision-language model
     EMBEDDING = "embedding"  # Text embeddings
+    RERANKER = "reranker"    # Document reranking
 
 
 @dataclass
@@ -58,10 +59,14 @@ class ModelConfig:
         if self.provider in [ProviderType.OPENAI, ProviderType.ANTHROPIC, ProviderType.AZURE]:
             if not self.api_key:
                 raise ValueError(f"{self.provider} provider requires api_key")
-        
-        # Embedding models require dimension
-        if self.model_type == ModelType.EMBEDDING and not self.embedding_dim:
-            raise ValueError("Embedding models require embedding_dim parameter")
+
+        # Embedding models require dimension (but not rerankers)
+        if self.model_type == ModelType.EMBEDDING:
+            # Local GPU providers may not have embedding_dim set initially
+            # (it will be determined from the model)
+            is_local_gpu = "device" in self.extra_params and self.extra_params["device"].startswith("cuda")
+            if not is_local_gpu and not self.embedding_dim:
+                raise ValueError("Embedding models require embedding_dim parameter")
     
     @classmethod
     def from_env(cls, prefix: str, model_type: ModelType) -> ModelConfig:
@@ -73,6 +78,14 @@ class ModelConfig:
             LLM_MODEL_NAME=gpt-4o-mini
             LLM_API_KEY=sk-...
             LLM_BASE_URL=https://api.openai.com/v1
+
+            # For local GPU providers:
+            EMBEDDING_PROVIDER=local
+            EMBEDDING_MODEL_NAME=Qwen/Qwen3-Embedding-4B
+            EMBEDDING_EMBEDDING_DIM=2560
+            EMBEDDING_DEVICE=cuda:0
+            EMBEDDING_DTYPE=float16
+            EMBEDDING_ATTN_IMPLEMENTATION=sdpa
         """
         provider = os.getenv(f"{prefix}_PROVIDER", "openai")
         model_name = os.getenv(f"{prefix}_MODEL_NAME")
@@ -99,6 +112,42 @@ class ModelConfig:
         if max_tok:
             max_tokens = int(max_tok)
 
+        # Read extra_params for local GPU providers
+        extra_params = {}
+
+        # Device configuration (for local GPU providers)
+        device = os.getenv(f"{prefix}_DEVICE")
+        if device:
+            extra_params["device"] = device
+
+        # Model path (for local models)
+        model_path = os.getenv(f"{prefix}_MODEL_PATH")
+        if model_path:
+            extra_params["model_path"] = model_path
+
+        # Data type (for local GPU providers)
+        dtype = os.getenv(f"{prefix}_DTYPE")
+        if dtype:
+            extra_params["dtype"] = dtype
+
+        # Attention implementation (for local GPU providers)
+        attn_impl = os.getenv(f"{prefix}_ATTN_IMPLEMENTATION")
+        if attn_impl:
+            extra_params["attn_implementation"] = attn_impl
+
+        # Batch processing parameters (for local GPU providers)
+        max_batch_tokens = os.getenv(f"{prefix}_MAX_BATCH_TOKENS")
+        if max_batch_tokens:
+            extra_params["max_batch_tokens"] = int(max_batch_tokens)
+
+        max_batch_size = os.getenv(f"{prefix}_MAX_BATCH_SIZE")
+        if max_batch_size:
+            extra_params["max_batch_size"] = int(max_batch_size)
+
+        max_queue_time = os.getenv(f"{prefix}_MAX_QUEUE_TIME")
+        if max_queue_time:
+            extra_params["max_queue_time"] = float(max_queue_time)
+
         config = cls(
             provider=ProviderType(provider),
             model_name=model_name,
@@ -108,6 +157,7 @@ class ModelConfig:
             embedding_dim=embedding_dim,
             temperature=temperature,
             max_tokens=max_tokens,
+            extra_params=extra_params,
         )
 
         return config
@@ -116,34 +166,46 @@ class ModelConfig:
 @dataclass
 class RerankerConfig:
     """Configuration for reranking models."""
-    
+
     enabled: bool = True
     provider: str = "local"  # "local" or "api"
-    
-    # For local FlagEmbedding reranker
+
+    # For local GPU reranker
+    model_name: Optional[str] = None
     model_path: Optional[str] = None
-    use_fp16: bool = False
+    device: Optional[str] = None
+    dtype: str = "float16"
+    attn_implementation: str = "sdpa"
     batch_size: int = 16
-    
+
     # For API-based reranker (future)
     api_key: Optional[str] = None
     base_url: Optional[str] = None
-    model_name: Optional[str] = None
-    
+
     @classmethod
     def from_env(cls) -> RerankerConfig:
         """Create RerankerConfig from environment variables."""
         enabled = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
         provider = os.getenv("RERANKER_PROVIDER", "local")
-        
+
         config = cls(
             enabled=enabled,
             provider=provider,
         )
-        
+
         if provider == "local":
+            config.model_name = os.getenv("RERANKER_MODEL_NAME")
             config.model_path = os.getenv("RERANKER_MODEL_PATH")
-            config.use_fp16 = os.getenv("RERANKER_USE_FP16", "false").lower() == "true"
+            config.device = os.getenv("RERANKER_DEVICE")
+
+            dtype = os.getenv("RERANKER_DTYPE")
+            if dtype:
+                config.dtype = dtype
+
+            attn_impl = os.getenv("RERANKER_ATTN_IMPLEMENTATION")
+            if attn_impl:
+                config.attn_implementation = attn_impl
+
             batch_size = os.getenv("RERANKER_BATCH_SIZE")
             if batch_size:
                 config.batch_size = int(batch_size)
@@ -151,7 +213,7 @@ class RerankerConfig:
             config.api_key = os.getenv("RERANKER_API_KEY")
             config.base_url = os.getenv("RERANKER_BASE_URL")
             config.model_name = os.getenv("RERANKER_MODEL_NAME")
-        
+
         return config
 
 

@@ -78,6 +78,13 @@ class ModelFactory:
         if config.model_type != ModelType.EMBEDDING:
             raise ValueError(f"Expected EMBEDDING model type, got {config.model_type}")
 
+        # Check if this is a local GPU provider (by device in extra_params)
+        is_local_gpu = "device" in config.extra_params and config.extra_params["device"].startswith("cuda")
+
+        if is_local_gpu:
+            from backend.providers.local_embedding import LocalEmbeddingProvider
+            return LocalEmbeddingProvider(config)
+
         # Check if this is a Jina model (by model name or base URL)
         is_jina = (
             "jina" in config.model_name.lower() or
@@ -97,40 +104,68 @@ class ModelFactory:
     def create_reranker(config: RerankerConfig) -> Optional[Callable]:
         """
         Create reranker from configuration.
-        
+
         Args:
             config: Reranker configuration
-            
+
         Returns:
             Reranker function or None if disabled
         """
         if not config or not config.enabled:
             return None
-        
+
         if config.provider == "local":
-            # Use FlagEmbedding reranker
-            if not config.model_path:
-                raise ValueError("Local reranker requires model_path")
+            # Check if this is a local GPU provider (by device parameter)
+            is_local_gpu = config.device and config.device.startswith("cuda")
 
-            from raganything.rerankers.flagembedding import FlagEmbeddingReranker
+            if is_local_gpu:
+                # Use LocalRerankerProvider for GPU-based reranking
+                if not config.model_name:
+                    raise ValueError("Local GPU reranker requires model_name")
 
-            reranker = FlagEmbeddingReranker(
-                model_path=config.model_path,
-                use_fp16=config.use_fp16,
-                batch_size=config.batch_size,
-            )
+                from backend.providers.local_embedding import LocalRerankerProvider
+                from backend.config import ModelConfig, ModelType
 
-            # Return async wrapper
-            # Accept **_kwargs to stay compatible with LightRAG, which may pass extra
-            # parameters such as top_n when calling the reranker. We ignore them
-            # here because our contract is to return one score per input document.
-            async def rerank_func(query: str, documents: List[str], **_kwargs) -> List[Dict[str, float]]:
-                # Return new-format results to avoid LightRAG's legacy adaptation path.
-                # Reason: Some LightRAG versions mishandle legacy float lists during rerank merge.
-                scores = await reranker.score_async(query, documents)
-                return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
+                # Create ModelConfig for LocalRerankerProvider
+                model_config = ModelConfig(
+                    provider=ProviderType.LOCAL,
+                    model_name=config.model_name,
+                    model_type=ModelType.RERANKER,
+                    extra_params={
+                        "device": config.device,
+                        "dtype": config.dtype,
+                        "attn_implementation": config.attn_implementation,
+                        "model_path": config.model_path,
+                    }
+                )
 
-            return rerank_func
+                reranker = LocalRerankerProvider(model_config)
+
+                # Return async wrapper
+                async def rerank_func(query: str, documents: List[str], **_kwargs) -> List[Dict[str, float]]:
+                    scores = await reranker.rerank(query, documents)
+                    return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
+
+                return rerank_func
+            else:
+                # Use FlagEmbedding reranker (CPU-based)
+                if not config.model_path:
+                    raise ValueError("Local reranker requires model_path")
+
+                from raganything.rerankers.flagembedding import FlagEmbeddingReranker
+
+                reranker = FlagEmbeddingReranker(
+                    model_path=config.model_path,
+                    use_fp16=config.dtype == "float16",
+                    batch_size=config.batch_size,
+                )
+
+                # Return async wrapper
+                async def rerank_func(query: str, documents: List[str], **_kwargs) -> List[Dict[str, float]]:
+                    scores = await reranker.score_async(query, documents)
+                    return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
+
+                return rerank_func
 
         elif config.provider == "api":
             # Use API-based reranker (Jina, Cohere, Voyage, etc.)
@@ -153,11 +188,7 @@ class ModelFactory:
             )
 
             # Return async wrapper
-            # Accept **_kwargs to stay compatible with LightRAG, which may pass extra
-            # parameters such as top_n when calling the reranker. We ignore them
-            # here because our contract is to return one score per input document.
             async def rerank_func(query: str, documents: List[str], **_kwargs) -> List[Dict[str, float]]:
-                # Return new-format results to avoid LightRAG's legacy adaptation path.
                 scores = await reranker.score_async(query, documents)
                 return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
 

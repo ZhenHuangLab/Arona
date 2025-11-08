@@ -16,6 +16,10 @@ from backend.providers.openai import (
 from backend.providers.jina import (
     JinaEmbeddingProvider,
 )
+from backend.providers.local_embedding import (
+    LocalEmbeddingProvider,
+    LocalRerankerProvider,
+)
 
 __all__ = [
     "BaseLLMProvider",
@@ -26,5 +30,7 @@ __all__ = [
     "OpenAIVisionProvider",
     "OpenAIEmbeddingProvider",
     "JinaEmbeddingProvider",
+    "LocalEmbeddingProvider",
+    "LocalRerankerProvider",
 ]
 
