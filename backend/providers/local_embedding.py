@@ -58,6 +58,7 @@ class BatchProcessor:
         max_wait_time: float = 0.1,
         device: str = "cuda:0",
         max_batch_tokens: Optional[int] = None,
+        encode_batch_size: int = 128,
     ):
         """
         Initialize batch processor.
@@ -67,12 +68,14 @@ class BatchProcessor:
             max_batch_size: Maximum number of requests per batch (default: 32)
             max_wait_time: Maximum wait time in seconds (default: 0.1 = 100ms)
             device: Device for inference (e.g., "cuda:0")
+            encode_batch_size: Batch size for sentence-transformers encode() (default: 128)
         """
         self.model = model
         self.max_batch_size = max_batch_size
         self.max_wait_time = max_wait_time
         self.device = device
         self.max_batch_tokens = max_batch_tokens
+        self.encode_batch_size = encode_batch_size
 
         # Request queue (unbounded to avoid blocking)
         self.queue: asyncio.Queue[BatchRequest] = asyncio.Queue()
@@ -87,7 +90,7 @@ class BatchProcessor:
             (
                 f"BatchProcessor initialized: max_batch_size={max_batch_size}, "
                 f"max_wait_time={max_wait_time}s, device={device}, "
-                f"max_batch_tokens={max_batch_tokens}"
+                f"max_batch_tokens={max_batch_tokens}, encode_batch_size={encode_batch_size}"
             )
         )
 
@@ -348,7 +351,7 @@ class BatchProcessor:
                 texts,
                 convert_to_tensor=True,
                 show_progress_bar=False,
-                batch_size=32,  # Internal batch size for sentence-transformers
+                batch_size=self.encode_batch_size,  # Use configurable batch size
             )
 
             # Convert to numpy
@@ -458,6 +461,7 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
             # Initialize batch processor
             max_batch_size = config.extra_params.get("max_batch_size", 32)
             max_wait_time = config.extra_params.get("max_wait_time", 0.1)
+            encode_batch_size = config.extra_params.get("encode_batch_size", 128)
 
             self.batch_processor = BatchProcessor(
                 model=self.model,
@@ -465,6 +469,7 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
                 max_wait_time=max_wait_time,
                 device=self.device,
                 max_batch_tokens=config.extra_params.get("max_batch_tokens"),
+                encode_batch_size=encode_batch_size,
             )
 
             # Start background processing task

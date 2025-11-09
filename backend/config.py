@@ -136,17 +136,30 @@ class ModelConfig:
             extra_params["attn_implementation"] = attn_impl
 
         # Batch processing parameters (for local GPU providers)
+        # Token budget
         max_batch_tokens = os.getenv(f"{prefix}_MAX_BATCH_TOKENS")
         if max_batch_tokens:
             extra_params["max_batch_tokens"] = int(max_batch_tokens)
 
+        # Dynamic batch size by number of requests
         max_batch_size = os.getenv(f"{prefix}_MAX_BATCH_SIZE")
         if max_batch_size:
             extra_params["max_batch_size"] = int(max_batch_size)
 
+        # Batch collection wait time (preferred)
+        max_wait_time = os.getenv(f"{prefix}_MAX_WAIT_TIME")
+        if max_wait_time:
+            extra_params["max_wait_time"] = float(max_wait_time)
+
+        # Backward-compat alias: MAX_QUEUE_TIME → max_wait_time (only if not set above)
         max_queue_time = os.getenv(f"{prefix}_MAX_QUEUE_TIME")
-        if max_queue_time:
-            extra_params["max_queue_time"] = float(max_queue_time)
+        if max_queue_time and "max_wait_time" not in extra_params:
+            extra_params["max_wait_time"] = float(max_queue_time)
+
+        # Internal encode() batch size for sentence-transformers
+        encode_batch_size = os.getenv(f"{prefix}_ENCODE_BATCH_SIZE")
+        if encode_batch_size:
+            extra_params["encode_batch_size"] = int(encode_batch_size)
 
         config = cls(
             provider=ProviderType(provider),
@@ -372,4 +385,3 @@ class BackendConfig:
             enable_table_processing=data.get("enable_table_processing", True),
             enable_equation_processing=data.get("enable_equation_processing", True),
         )
-
