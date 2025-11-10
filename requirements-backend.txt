@@ -32,11 +32,11 @@ python-json-logger>=2.0.0
 #    pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.13.1 --index-url https://download.pytorch.org/whl/cu118
 #
 # 2. Install transformers and related packages:
-#    pip install transformers==4.51.3 sentence-transformers>=2.3.0 accelerate safetensors pillow
+#    pip install transformers==4.57.1 sentence-transformers>=2.3.0 accelerate safetensors pillow
 #
 # Version constraints explained:
 # - torch==2.0.1: Last stable version with full Pascal (GTX 1080 Ti) support via CUDA 11.8
-# - transformers==4.51.3: REQUIRED for GME-Qwen2-VL-2B compatibility. DO NOT upgrade to 4.52+
+# - transformers==4.57.1: REQUIRED for GME-Qwen2-VL-2B compatibility. DO NOT upgrade to 4.52+
 #   as it breaks GME model loading. See: https://github.com/Alibaba-NLP/GME/issues/xxx
 # - sentence-transformers>=2.3.0: Stable version with good SentenceTransformer API
 # - accelerate>=0.25.0: For efficient model loading and device mapping
@@ -48,7 +48,7 @@ python-json-logger>=2.0.0
 # torch==2.0.1
 
 # Transformers and NLP
-transformers==4.51.3  # LOCKED: Required for GME compatibility, DO NOT upgrade to 4.52+
+transformers==4.57.1  # LOCKED: Required for GME compatibility, DO NOT upgrade to 4.52+
 sentence-transformers>=2.3.0  # For embedding model inference
 accelerate>=0.25.0  # Model loading optimization
 safetensors>=0.4.0  # Fast model weight loading
