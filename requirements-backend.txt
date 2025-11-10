@@ -54,7 +54,7 @@ accelerate>=0.25.0  # Model loading optimization
 safetensors>=0.4.0  # Fast model weight loading
 
 # NumPy (compatibility constraint)
-numpy<2  # LOCKED: sentence-transformers has compatibility issues with NumPy 2.x
+numpy<3  # LOCKED: sentence-transformers has compatibility issues with NumPy 2.x
 
 # Image processing (for multimodal embedding)
 pillow>=10.0.0  # Already in raganything optional deps, but needed for GME
