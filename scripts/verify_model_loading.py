@@ -70,6 +70,85 @@ def measure_memory(device: str) -> float:
     return torch.cuda.memory_allocated(device) / 1024**3
 
 
+def _qwen3_reranker_format_pair(instruction: str, query: str, document: str) -> str:
+    """Format a single pair for Qwen3-Reranker scoring."""
+    return (
+        f"<Instruct>: {instruction}\n"
+        f"<Query>: {query}\n"
+        f"<Document>: {document}"
+    )
+
+
+def _qwen3_reranker_build_inputs(
+    tokenizer,
+    pairs: List[str],
+    device: str,
+    max_length: int = 8192,
+    system_prompt: str | None = None,
+) -> Dict[str, torch.Tensor]:
+    """
+    Build padded model inputs for Qwen3-Reranker (CausalLM yes/no template).
+
+    The model expects a system/user prompt wrapper; scoring is based on the
+    next token distribution of "yes" vs "no".
+    """
+    if system_prompt is None:
+        system_prompt = (
+            "Judge whether the Document meets the requirements based on the Query and the Instruct provided. "
+            "Note that the answer can only be \"yes\" or \"no\"."
+        )
+
+    prefix = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n"
+    suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+
+    prefix_tokens = tokenizer.encode(prefix, add_special_tokens=False)
+    suffix_tokens = tokenizer.encode(suffix, add_special_tokens=False)
+    max_pair_len = max_length - len(prefix_tokens) - len(suffix_tokens)
+    if max_pair_len <= 0:
+        raise RuntimeError("Reranker template too long for max_length")
+
+    enc = tokenizer(
+        pairs,
+        padding=False,
+        truncation="longest_first",
+        return_attention_mask=False,
+        max_length=max_pair_len,
+        add_special_tokens=False,
+    )
+    enc["input_ids"] = [
+        prefix_tokens + ids + suffix_tokens for ids in enc.get("input_ids", [])
+    ]
+    inputs = tokenizer.pad(enc, padding=True, return_tensors="pt")
+    return {k: v.to(device) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+
+
+def _qwen3_reranker_score_pairs(
+    model,
+    tokenizer,
+    pairs: List[str],
+    device: str,
+    token_yes_id: int,
+    token_no_id: int,
+    max_length: int = 8192,
+    system_prompt: str | None = None,
+) -> List[float]:
+    """Score pairs via P(yes) computed from the next-token distribution."""
+    inputs = _qwen3_reranker_build_inputs(
+        tokenizer=tokenizer,
+        pairs=pairs,
+        device=device,
+        max_length=max_length,
+        system_prompt=system_prompt,
+    )
+    with torch.no_grad():
+        outputs = model(**inputs)
+        next_logits = outputs.logits[:, -1, :]
+        yes_logits = next_logits[:, token_yes_id]
+        no_logits = next_logits[:, token_no_id]
+        probs_yes = torch.softmax(torch.stack([no_logits, yes_logits], dim=1).float(), dim=1)[:, 1]
+        return probs_yes.detach().cpu().tolist()
+
+
 def test_embedding_model(
     model_id: str,
     device: str,
@@ -211,7 +290,7 @@ def test_reranker_model(
     Returns:
         Test results dictionary
     """
-    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+    from transformers import AutoModelForCausalLM, AutoTokenizer
     
     results = {
         "model_id": model_id,
@@ -229,17 +308,40 @@ def test_reranker_model(
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(dev)
         initial_memory = measure_memory(dev)
+        initial_reserved = torch.cuda.memory_reserved(dev) / 1024**3
         
         # Load model
         print(f"Loading {model_id} with dtype={dtype}, attn={attn_implementation}...")
         start_time = time.time()
         
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-        model = AutoModelForSequenceClassification.from_pretrained(
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_id,
+            padding_side="left",
+            trust_remote_code=True,
+        )
+        # Ensure pad token exists for batched padding
+        if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
+        if getattr(tokenizer, "pad_token_id", None) is None and tokenizer.eos_token_id is not None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+
+        yes_ids = tokenizer("yes", add_special_tokens=False).input_ids
+        no_ids = tokenizer("no", add_special_tokens=False).input_ids
+        if len(yes_ids) != 1 or len(no_ids) != 1:
+            raise RuntimeError(f'Expected "yes"/"no" to be single tokens, got yes={yes_ids}, no={no_ids}')
+        token_yes_id = yes_ids[0]
+        token_no_id = no_ids[0]
+
+        model = AutoModelForCausalLM.from_pretrained(
             model_id,
             torch_dtype=dtype,
             attn_implementation=attn_implementation,
+            trust_remote_code=True,
         ).to(device)
+        model.eval()
+
+        if getattr(model.config, "pad_token_id", None) is None and getattr(tokenizer, "pad_token_id", None) is not None:
+            model.config.pad_token_id = tokenizer.pad_token_id
 
         # Verify attention backend if available
         attn_backend = getattr(getattr(model, 'config', None), 'attn_implementation', None)
@@ -250,10 +352,9 @@ def test_reranker_model(
         
         load_time = time.time() - start_time
         loaded_memory = measure_memory(dev)
-        reserved_loaded = torch.cuda.memory_reserved(device) / 1024**3
-        reserved_initial = torch.cuda.memory_reserved(device) / 1024**3
+        reserved_loaded = torch.cuda.memory_reserved(dev) / 1024**3
         memory_used = loaded_memory - initial_memory
-        reserved_used = reserved_loaded - reserved_initial
+        reserved_used = reserved_loaded - initial_reserved
         
         print(f"  Load time: {load_time:.2f}s")
         print(f"  Memory used: {memory_used:.2f} GB (allocated)")
@@ -261,37 +362,51 @@ def test_reranker_model(
         
         # Warmup
         print("  Warming up...")
-        query = "warmup"
-        doc = "warmup document"
-        inputs = tokenizer(query, doc, return_tensors="pt", truncation=True, max_length=512).to(device)
-        with torch.no_grad():
-            _ = model(**inputs)
+        warmup_pairs = [
+            _qwen3_reranker_format_pair(
+                instruction="Given a web search query, retrieve relevant passages that answer the query",
+                query="warmup",
+                document="warmup document",
+            )
+        ]
+        _ = _qwen3_reranker_score_pairs(
+            model=model,
+            tokenizer=tokenizer,
+            pairs=warmup_pairs,
+            device=device,
+            token_yes_id=token_yes_id,
+            token_no_id=token_no_id,
+            max_length=8192,
+        )
         warmup_memory = measure_memory(dev)
         
         # Test single inference
         print("  Testing single inference...")
         query = "What is the capital of France?"
         document = "Paris is the capital and largest city of France."
-        
-        inputs = tokenizer(query, document, return_tensors="pt", truncation=True, max_length=512).to(device)
-        
+
+        instruction = "Given a web search query, retrieve relevant passages that answer the query"
+        pairs = [_qwen3_reranker_format_pair(instruction, query, document)]
+
         start_time = time.time()
-        with torch.no_grad():
-            outputs = model(**inputs)
-            logits = outputs.logits.squeeze()
-            # Handle both single and batch outputs
-            if logits.dim() == 0:
-                score = logits.item()
-            else:
-                score = logits[0].item() if logits.numel() > 1 else logits.item()
+        scores = _qwen3_reranker_score_pairs(
+            model=model,
+            tokenizer=tokenizer,
+            pairs=pairs,
+            device=device,
+            token_yes_id=token_yes_id,
+            token_no_id=token_no_id,
+            max_length=8192,
+        )
         inference_time = time.time() - start_time
-        
+        score = float(scores[0])
+
         print(f"  Inference time: {inference_time*1000:.2f}ms")
-        print(f"  Reranker score: {score:.4f}")
+        print(f"  Reranker score (P(yes)): {score:.4f}")
         
         # Get peak memory
         peak_memory = torch.cuda.max_memory_allocated(dev) / 1024**3
-        peak_reserved = torch.cuda.max_memory_reserved(device) / 1024**3
+        peak_reserved = torch.cuda.max_memory_reserved(dev) / 1024**3
         
         results.update({
             "success": True,
@@ -403,24 +518,37 @@ def test_batch_inference(
             del model
             
         elif model_type == "reranker":
-            from transformers import AutoModelForSequenceClassification, AutoTokenizer
-            
-            tokenizer = AutoTokenizer.from_pretrained(model_id)
-            # Ensure pad token is defined for batched inputs
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_id,
+                padding_side="left",
+                trust_remote_code=True,
+            )
             if tokenizer.pad_token is None and tokenizer.eos_token is not None:
                 tokenizer.pad_token = tokenizer.eos_token
-            if getattr(tokenizer, 'pad_token_id', None) is None and tokenizer.pad_token is not None:
-                tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
-            model = AutoModelForSequenceClassification.from_pretrained(
+            if getattr(tokenizer, "pad_token_id", None) is None and tokenizer.eos_token_id is not None:
+                tokenizer.pad_token_id = tokenizer.eos_token_id
+
+            yes_ids = tokenizer("yes", add_special_tokens=False).input_ids
+            no_ids = tokenizer("no", add_special_tokens=False).input_ids
+            if len(yes_ids) != 1 or len(no_ids) != 1:
+                raise RuntimeError(f'Expected "yes"/"no" to be single tokens, got yes={yes_ids}, no={no_ids}')
+            token_yes_id = yes_ids[0]
+            token_no_id = no_ids[0]
+
+            model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 torch_dtype=torch.float16,
                 attn_implementation="sdpa",
+                trust_remote_code=True,
             ).to(device)
-            # Align model config pad token if missing
-            if getattr(model.config, 'pad_token_id', None) is None and tokenizer.pad_token_id is not None:
+            model.eval()
+            if getattr(model.config, "pad_token_id", None) is None and getattr(tokenizer, "pad_token_id", None) is not None:
                 model.config.pad_token_id = tokenizer.pad_token_id
             
             query = "What is machine learning?"
+            instruction = "Given a web search query, retrieve relevant passages that answer the query"
             
             for batch_size in batch_sizes:
                 print(f"\nTesting batch_size={batch_size}...")
@@ -436,26 +564,20 @@ def test_batch_inference(
 
                 # True batched inference
                 start_time = time.time()
-                inputs = tokenizer(
-                    [query] * batch_size,
-                    documents,
-                    padding=True,
-                    truncation=True,
-                    max_length=512,
-                    return_tensors="pt",
-                ).to(device)
-                with torch.no_grad():
-                    outputs = model(**inputs)
-                    logits = outputs.logits
-                    if logits.dim() == 2 and logits.size(-1) == 1:
-                        scores_tensor = logits.squeeze(-1)
-                    elif logits.dim() == 2 and logits.size(-1) > 1:
-                        scores_tensor = logits[:, 0]
-                    else:
-                        scores_tensor = logits.squeeze()
+                pairs = [
+                    _qwen3_reranker_format_pair(instruction, query, doc)
+                    for doc in documents
+                ]
+                scores = _qwen3_reranker_score_pairs(
+                    model=model,
+                    tokenizer=tokenizer,
+                    pairs=pairs,
+                    device=device,
+                    token_yes_id=token_yes_id,
+                    token_no_id=token_no_id,
+                    max_length=8192,
+                )
                 inference_time = time.time() - start_time
-
-                scores = scores_tensor.detach().float().cpu().tolist()
 
                 peak_memory = torch.cuda.max_memory_allocated(device) / 1024**3
                 peak_reserved = torch.cuda.max_memory_reserved(device) / 1024**3

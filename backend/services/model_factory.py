@@ -7,12 +7,15 @@ Converts providers to RAGAnything-compatible function signatures.
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional, List, Dict, Any
 
 from lightrag.utils import EmbeddingFunc
 
 from backend.config import ModelConfig, ProviderType, ModelType, RerankerConfig
 from backend.providers.base import BaseLLMProvider, BaseVisionProvider, BaseEmbeddingProvider
+
+logger = logging.getLogger(__name__)
 
 
 class ModelFactory:
@@ -78,12 +81,32 @@ class ModelFactory:
         if config.model_type != ModelType.EMBEDDING:
             raise ValueError(f"Expected EMBEDDING model type, got {config.model_type}")
 
-        # Check if this is a local GPU provider (by device in extra_params)
-        is_local_gpu = "device" in config.extra_params and config.extra_params["device"].startswith("cuda")
+        device = config.extra_params.get("device")
+        is_cuda_device = isinstance(device, str) and device.startswith("cuda")
+
+        # Local GPU embedding is explicitly enabled via provider=local_gpu.
+        # Backward-compat: provider=local + cuda device + no base_url also means local GPU.
+        is_local_gpu = (
+            config.provider == ProviderType.LOCAL_GPU
+            or (config.provider == ProviderType.LOCAL and config.base_url is None and is_cuda_device)
+        )
+        if config.provider == ProviderType.LOCAL and config.base_url is None and is_cuda_device:
+            logger.warning(
+                "Embedding provider configured as provider=local with cuda device but no base_url; "
+                "treating as local GPU provider for backward compatibility. "
+                "Prefer EMBEDDING_PROVIDER=local_gpu for explicit configuration."
+            )
 
         if is_local_gpu:
-            from backend.providers.local_embedding import LocalEmbeddingProvider
-            return LocalEmbeddingProvider(config)
+            # Check if this is a multimodal model (GME-Qwen2-VL)
+            is_multimodal = "gme" in config.model_name.lower() or "qwen2-vl" in config.model_name.lower()
+
+            if is_multimodal:
+                from backend.providers.local_embedding import MultimodalEmbeddingProvider
+                return MultimodalEmbeddingProvider(config)
+            else:
+                from backend.providers.local_embedding import LocalEmbeddingProvider
+                return LocalEmbeddingProvider(config)
 
         # Check if this is a Jina model (by model name or base URL)
         is_jina = (
@@ -114,7 +137,7 @@ class ModelFactory:
         if not config or not config.enabled:
             return None
 
-        if config.provider == "local":
+        if config.provider in {"local", "local_gpu"}:
             # Check if this is a local GPU provider (by device parameter)
             is_local_gpu = config.device and config.device.startswith("cuda")
 
@@ -136,6 +159,8 @@ class ModelFactory:
                         "dtype": config.dtype,
                         "attn_implementation": config.attn_implementation,
                         "model_path": config.model_path,
+                        "batch_size": config.batch_size,
+                        "max_length": config.max_length,
                     }
                 )
 
@@ -347,9 +372,14 @@ class ModelFactory:
             """RAGAnything-compatible embedding function."""
             return await provider.embed(texts)
 
+        max_token_size = 8192
+        provider_config = getattr(provider, "config", None)
+        if provider_config is not None and hasattr(provider_config, "extra_params"):
+            max_token_size = provider_config.extra_params.get("max_token_size", max_token_size)
+
         return EmbeddingFunc(
             embedding_dim=provider.embedding_dim,
-            max_token_size=8192,  # Default value
+            max_token_size=max_token_size,
             func=embed_func,
         )
 
@@ -388,4 +418,3 @@ class ModelFactory:
 
         # Default to OpenAI-compatible format
         return "openai"
-

@@ -213,6 +213,37 @@ EMBEDDING_BASE_URL=http://localhost:11434/v1
 EMBEDDING_EMBEDDING_DIM=1024
 ```
 
+### Example 5: Local GPU Embedding (Task 7)
+
+```bash
+# NOTE:
+# - EMBEDDING_PROVIDER=local means an OpenAI-compatible HTTP server (LM Studio, Ollama, vLLM, etc.)
+# - EMBEDDING_PROVIDER=local_gpu means in-process GPU inference (HuggingFace / sentence-transformers)
+
+# Text embedding on GPU 0
+EMBEDDING_PROVIDER=local_gpu
+EMBEDDING_MODEL_NAME=Qwen/Qwen3-Embedding-4B
+EMBEDDING_EMBEDDING_DIM=2560
+EMBEDDING_DEVICE=cuda:0
+EMBEDDING_DTYPE=float16
+EMBEDDING_ATTN_IMPLEMENTATION=sdpa
+
+# Optional: dynamic batching
+EMBEDDING_MAX_BATCH_SIZE=32
+EMBEDDING_MAX_WAIT_TIME=0.1
+EMBEDDING_MAX_BATCH_TOKENS=16384
+EMBEDDING_ENCODE_BATCH_SIZE=128
+
+# Local GPU reranker on GPU 1
+RERANKER_ENABLED=true
+RERANKER_PROVIDER=local_gpu
+RERANKER_MODEL_NAME=Qwen/Qwen3-Reranker-4B
+RERANKER_DEVICE=cuda:1
+RERANKER_DTYPE=float16
+RERANKER_ATTN_IMPLEMENTATION=sdpa
+RERANKER_BATCH_SIZE=16
+```
+
 ## API Endpoints
 
 ### Document Management
@@ -276,4 +307,3 @@ The core `raganything` library remains unchanged. Existing scripts using RAGAnyt
 2. **Customize the frontend** to match your requirements
 3. **Deploy to production** using the provided scripts
 4. **Provide feedback** for improvements
-

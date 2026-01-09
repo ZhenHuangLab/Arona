@@ -29,13 +29,13 @@ python-json-logger>=2.0.0
 #
 # Installation instructions:
 # 1. Install PyTorch with CUDA 11.8 support (for Pascal GTX 1080 Ti):
-#    pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.13.1 --index-url https://download.pytorch.org/whl/cu118
+#    pip install torch==2.3.1 torchvision==0.18.1 triton==2.3.1 --index-url https://download.pytorch.org/whl/cu118
 #
 # 2. Install transformers and related packages:
 #    pip install transformers==4.51.3 sentence-transformers>=2.3.0 accelerate safetensors pillow
 #
 # Version constraints explained:
-# - torch==2.0.1: Last stable version with full Pascal (GTX 1080 Ti) support via CUDA 11.8
+# - torch==2.3.1+cu118: Validated on Pascal (sm_61) via CUDA 11.8 wheels; newer cu12x wheels may drop Pascal support
 # - transformers==4.51.3: REQUIRED for GME-Qwen2-VL-2B compatibility. DO NOT upgrade to 4.52+
 #   as it breaks GME model loading. See: https://github.com/Alibaba-NLP/GME/issues/xxx
 # - sentence-transformers>=2.3.0: Stable version with good SentenceTransformer API
@@ -44,8 +44,8 @@ python-json-logger>=2.0.0
 # - pillow>=10.0.0: Required for multimodal (image) embedding support
 
 # PyTorch (CUDA 11.8 for Pascal architecture)
-# Install separately: pip install torch==2.0.1 --index-url https://download.pytorch.org/whl/cu118
-# torch==2.0.1
+# Install separately (example): pip install torch==2.3.1 torchvision==0.18.1 triton==2.3.1 --index-url https://download.pytorch.org/whl/cu118
+# torch==2.3.1
 
 # Transformers and NLP
 transformers==4.51.3  # LOCKED: Required for GME compatibility, DO NOT upgrade to 4.52+
@@ -58,4 +58,3 @@ numpy<2  # LOCKED: sentence-transformers has compatibility issues with NumPy 2.x
 
 # Image processing (for multimodal embedding)
 pillow>=10.0.0  # Already in raganything optional deps, but needed for GME
-

@@ -23,6 +23,7 @@ class ProviderType(str, Enum):
     AZURE = "azure"
     CUSTOM = "custom"  # Any OpenAI-compatible API
     LOCAL = "local"    # Local models (Ollama, LM Studio, etc.)
+    LOCAL_GPU = "local_gpu"  # Local GPU inference (in-process HF/ST models)
 
 
 class ModelType(str, Enum):
@@ -55,6 +56,10 @@ class ModelConfig:
     
     def __post_init__(self):
         """Validate configuration."""
+        # LOCAL_GPU only makes sense for in-process models.
+        if self.provider == ProviderType.LOCAL_GPU and self.model_type != ModelType.EMBEDDING:
+            raise ValueError("LOCAL_GPU provider is only supported for embedding models")
+
         # API-based providers require api_key
         if self.provider in [ProviderType.OPENAI, ProviderType.ANTHROPIC, ProviderType.AZURE]:
             if not self.api_key:
@@ -62,9 +67,13 @@ class ModelConfig:
 
         # Embedding models require dimension (but not rerankers)
         if self.model_type == ModelType.EMBEDDING:
-            # Local GPU providers may not have embedding_dim set initially
-            # (it will be determined from the model)
-            is_local_gpu = "device" in self.extra_params and self.extra_params["device"].startswith("cuda")
+            # Local GPU providers may omit embedding_dim (it can be determined from the model).
+            device = self.extra_params.get("device")
+            is_cuda_device = isinstance(device, str) and device.startswith("cuda")
+            is_local_gpu = (
+                self.provider == ProviderType.LOCAL_GPU
+                or (self.provider == ProviderType.LOCAL and self.base_url is None and is_cuda_device)
+            )
             if not is_local_gpu and not self.embedding_dim:
                 raise ValueError("Embedding models require embedding_dim parameter")
     
@@ -80,7 +89,7 @@ class ModelConfig:
             LLM_BASE_URL=https://api.openai.com/v1
 
             # For local GPU providers:
-            EMBEDDING_PROVIDER=local
+            EMBEDDING_PROVIDER=local_gpu
             EMBEDDING_MODEL_NAME=Qwen/Qwen3-Embedding-4B
             EMBEDDING_EMBEDDING_DIM=2560
             EMBEDDING_DEVICE=cuda:0
@@ -161,6 +170,35 @@ class ModelConfig:
         if encode_batch_size:
             extra_params["encode_batch_size"] = int(encode_batch_size)
 
+        # Multimodal embedding parameters (used by MultimodalEmbeddingProvider)
+        min_image_tokens = os.getenv(f"{prefix}_MIN_IMAGE_TOKENS")
+        if min_image_tokens:
+            extra_params["min_image_tokens"] = int(min_image_tokens)
+
+        max_image_tokens = os.getenv(f"{prefix}_MAX_IMAGE_TOKENS")
+        if max_image_tokens:
+            extra_params["max_image_tokens"] = int(max_image_tokens)
+
+        max_length = os.getenv(f"{prefix}_MAX_LENGTH")
+        if max_length:
+            extra_params["max_length"] = int(max_length)
+
+        default_instruction = os.getenv(f"{prefix}_DEFAULT_INSTRUCTION")
+        if default_instruction:
+            extra_params["default_instruction"] = default_instruction
+
+        normalize = os.getenv(f"{prefix}_NORMALIZE")
+        if normalize:
+            extra_params["normalize"] = normalize.lower() == "true"
+
+        allow_image_urls = os.getenv(f"{prefix}_ALLOW_IMAGE_URLS")
+        if allow_image_urls:
+            extra_params["allow_image_urls"] = allow_image_urls.lower() == "true"
+
+        max_image_bytes = os.getenv(f"{prefix}_MAX_IMAGE_BYTES")
+        if max_image_bytes:
+            extra_params["max_image_bytes"] = int(max_image_bytes)
+
         config = cls(
             provider=ProviderType(provider),
             model_name=model_name,
@@ -190,6 +228,7 @@ class RerankerConfig:
     dtype: str = "float16"
     attn_implementation: str = "sdpa"
     batch_size: int = 16
+    max_length: int = 8192
 
     # For API-based reranker (future)
     api_key: Optional[str] = None
@@ -200,6 +239,9 @@ class RerankerConfig:
         """Create RerankerConfig from environment variables."""
         enabled = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
         provider = os.getenv("RERANKER_PROVIDER", "local")
+        # Backward/forward compat: treat local_gpu as local (device decides CPU/GPU).
+        if provider == "local_gpu":
+            provider = "local"
 
         config = cls(
             enabled=enabled,
@@ -222,6 +264,10 @@ class RerankerConfig:
             batch_size = os.getenv("RERANKER_BATCH_SIZE")
             if batch_size:
                 config.batch_size = int(batch_size)
+
+            max_length = os.getenv("RERANKER_MAX_LENGTH")
+            if max_length:
+                config.max_length = int(max_length)
         else:
             config.api_key = os.getenv("RERANKER_API_KEY")
             config.base_url = os.getenv("RERANKER_BASE_URL")
@@ -239,6 +285,7 @@ class BackendConfig:
     embedding: ModelConfig
     vision: Optional[ModelConfig] = None
     reranker: Optional[RerankerConfig] = None
+    multimodal_embedding: Optional[ModelConfig] = None
     
     # Storage configuration (will be converted to absolute paths in from_env)
     working_dir: str = "./rag_storage"
@@ -280,6 +327,13 @@ class BackendConfig:
         reranker = None
         if os.getenv("RERANKER_ENABLED", "true").lower() == "true":
             reranker = RerankerConfig.from_env()
+
+        # Optional multimodal embedding model (separate from text embedding)
+        multimodal_embedding = None
+        if os.getenv("MULTIMODAL_EMBEDDING_ENABLED", "false").lower() == "true":
+            multimodal_embedding = ModelConfig.from_env(
+                "MULTIMODAL_EMBEDDING", ModelType.EMBEDDING
+            )
         
         # Storage paths - convert to absolute paths
         working_dir = os.path.abspath(os.getenv("WORKING_DIR", "./rag_storage"))
@@ -307,6 +361,7 @@ class BackendConfig:
             embedding=embedding,
             vision=vision,
             reranker=reranker,
+            multimodal_embedding=multimodal_embedding,
             working_dir=working_dir,
             upload_dir=upload_dir,
             parser=parser,

@@ -19,6 +19,7 @@ from backend.providers.jina import (
 from backend.providers.local_embedding import (
     LocalEmbeddingProvider,
     LocalRerankerProvider,
+    MultimodalEmbeddingProvider,
 )
 
 __all__ = [
@@ -32,5 +33,5 @@ __all__ = [
     "JinaEmbeddingProvider",
     "LocalEmbeddingProvider",
     "LocalRerankerProvider",
+    "MultimodalEmbeddingProvider",
 ]
-

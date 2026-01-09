@@ -428,7 +428,7 @@ class EndToEndTest:
 
             # Create embedding config
             embedding_config = ModelConfig(
-                provider=ProviderType.LOCAL,
+                provider=ProviderType.LOCAL_GPU,
                 model_name="Qwen/Qwen3-Embedding-4B",
                 model_type=ModelType.EMBEDDING,
                 embedding_dim=2560,
@@ -510,7 +510,7 @@ async def run_benchmarks(args):
         from backend.providers.local_embedding import LocalEmbeddingProvider
 
         embedding_config = ModelConfig(
-            provider=ProviderType.LOCAL,
+            provider=ProviderType.LOCAL_GPU,
             model_name=args.model,
             model_type=ModelType.EMBEDDING,
             embedding_dim=2560,

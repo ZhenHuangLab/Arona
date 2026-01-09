@@ -46,7 +46,7 @@ async def run_test(args) -> Dict[str, Any]:
 
     # 1) Initialize local embedding provider
     cfg = ModelConfig(
-        provider=ProviderType.LOCAL,
+        provider=ProviderType.LOCAL_GPU,
         model_name=args.model,
         model_type=ModelType.EMBEDDING,
         embedding_dim=2560,
@@ -170,4 +170,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

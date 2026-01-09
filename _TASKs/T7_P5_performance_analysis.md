@@ -231,7 +231,7 @@ The BatchProcessor implementation:
    - Realistic performance expectations
    - Hardware-specific guidance
 
-> Update (2025-11-09): Added a dedicated end-to-end retrieval validation script `scripts/benchmark_end_to_end_rag.py` (indexes a tiny corpus via LocalEmbeddingProvider → LightRAG and asserts retrieval). Environment wiring was aligned with documentation: `EMBEDDING_MAX_WAIT_TIME` and `EMBEDDING_ENCODE_BATCH_SIZE` now flow into `extra_params` and are honored by `BatchProcessor`/`SentenceTransformer.encode`; examples normalized to `EMBEDDING_PROVIDER=local` and `RERANKER_DTYPE=float16|float32`. The main benchmark also exposes `--encode-batch-size` and `--max-wait-time` for reproducible tuning.
+> Update (2025-11-09): Added a dedicated end-to-end retrieval validation script `scripts/benchmark_end_to_end_rag.py` (indexes a tiny corpus via LocalEmbeddingProvider → LightRAG and asserts retrieval). Environment wiring was aligned with documentation: `EMBEDDING_MAX_WAIT_TIME` and `EMBEDDING_ENCODE_BATCH_SIZE` now flow into `extra_params` and are honored by `BatchProcessor`/`SentenceTransformer.encode`; examples normalized to `EMBEDDING_PROVIDER=local_gpu` and `RERANKER_DTYPE=float16|float32`. The main benchmark also exposes `--encode-batch-size` and `--max-wait-time` for reproducible tuning.
 
 ## Conclusion
 

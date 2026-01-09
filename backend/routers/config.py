@@ -154,6 +154,16 @@ async def get_current_config(request: Request):
                 "model_name": config.vision.model_name,
                 "base_url": config.vision.base_url,
             }
+
+        # Add multimodal embedding model if configured
+        if getattr(config, "multimodal_embedding", None):
+            response.models["multimodal_embedding"] = {
+                "provider": config.multimodal_embedding.provider.value,
+                "model_name": config.multimodal_embedding.model_name,
+                "base_url": config.multimodal_embedding.base_url,
+                "embedding_dim": config.multimodal_embedding.embedding_dim,
+                "device": config.multimodal_embedding.extra_params.get("device"),
+            }
         
         # Add reranker if configured
         if config.reranker and config.reranker.enabled:
@@ -293,4 +303,3 @@ async def list_config_files():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list config files: {str(e)}"
         )
-

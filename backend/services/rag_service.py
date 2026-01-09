@@ -41,6 +41,13 @@ class RAGService:
         # Create embedding provider (save reference for shutdown)
         self.embedding_provider = ModelFactory.create_embedding_provider(config.embedding)
 
+        # Optional multimodal embedding provider (separate from text embedding)
+        self.multimodal_embedding_provider = None
+        if getattr(config, "multimodal_embedding", None):
+            self.multimodal_embedding_provider = ModelFactory.create_embedding_provider(
+                config.multimodal_embedding
+            )
+
         # Create model functions from config
         self.llm_func = ModelFactory.create_llm_func(config.llm)
         self.embedding_func = ModelFactory.create_embedding_func_from_provider(self.embedding_provider)
@@ -62,6 +69,11 @@ class RAGService:
             logger.info(f"  Vision: {config.vision.provider}/{config.vision.model_name}")
         if config.reranker and config.reranker.enabled:
             logger.info(f"  Reranker: {config.reranker.provider}")
+        if self.multimodal_embedding_provider is not None:
+            logger.info(
+                "  Multimodal Embedding: "
+                f"{config.multimodal_embedding.provider}/{config.multimodal_embedding.model_name}"
+            )
     
     async def get_rag_instance(self) -> RAGAnything:
         """
@@ -237,7 +249,7 @@ class RAGService:
                 "embedding": {
                     "provider": self.config.embedding.provider.value,
                     "model": self.config.embedding.model_name,
-                    "dimension": self.config.embedding.embedding_dim,
+                    "dimension": getattr(self.embedding_provider, "embedding_dim", self.config.embedding.embedding_dim),
                 },
             },
         }
@@ -254,6 +266,13 @@ class RAGService:
                 "provider": self.config.reranker.provider,
             }
 
+        if self.multimodal_embedding_provider is not None:
+            status["models"]["multimodal_embedding"] = {
+                "provider": self.config.multimodal_embedding.provider.value,
+                "model": self.config.multimodal_embedding.model_name,
+                "dimension": self.multimodal_embedding_provider.embedding_dim,
+            }
+
         return status
 
     async def shutdown(self) -> None:
@@ -268,5 +287,8 @@ class RAGService:
         if hasattr(self.embedding_provider, 'shutdown'):
             await self.embedding_provider.shutdown()
 
-        logger.info("RAG service shutdown complete")
+        # Shutdown multimodal embedding provider if present
+        if self.multimodal_embedding_provider and hasattr(self.multimodal_embedding_provider, "shutdown"):
+            await self.multimodal_embedding_provider.shutdown()
 
+        logger.info("RAG service shutdown complete")

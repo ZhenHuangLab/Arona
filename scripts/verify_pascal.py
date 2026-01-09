@@ -54,7 +54,7 @@ def check_pytorch_cuda():
     except ImportError:
         print("✗ PyTorch is not installed")
         print("\nInstallation instructions:")
-        print("  pip install torch==2.0.1 --index-url https://download.pytorch.org/whl/cu118")
+        print("  pip install torch==2.3.1 torchvision==0.18.1 triton==2.3.1 --index-url https://download.pytorch.org/whl/cu118")
         return False
 
 
@@ -308,4 +308,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -194,6 +194,37 @@ EMBEDDING_EMBEDDING_DIM=768
 RERANKER_ENABLED=false
 ```
 
+### Using Local GPU Embedding (Task 7: Qwen3-Embedding/Reranker)
+
+Notes:
+- Qwen3 models require `transformers>=4.51.0` (recommended: `transformers==4.51.3`).
+- `Qwen/Qwen3-Reranker-4B` is a **CausalLM** reranker; scores are computed via the official **yes/no next-token** template (i.e., the rerank score is `P(yes)` in `[0,1]`), not a SequenceClassification head.
+
+```bash
+# Text embedding on GPU 0
+EMBEDDING_PROVIDER=local_gpu
+EMBEDDING_MODEL_NAME=Qwen/Qwen3-Embedding-4B
+EMBEDDING_EMBEDDING_DIM=2560
+EMBEDDING_DEVICE=cuda:0
+EMBEDDING_DTYPE=float16
+EMBEDDING_ATTN_IMPLEMENTATION=sdpa
+
+# Dynamic batching (optional tuning)
+EMBEDDING_MAX_BATCH_SIZE=32
+EMBEDDING_MAX_WAIT_TIME=0.1
+EMBEDDING_MAX_BATCH_TOKENS=16384
+EMBEDDING_ENCODE_BATCH_SIZE=128
+
+# Reranker on GPU 1
+RERANKER_ENABLED=true
+RERANKER_PROVIDER=local_gpu
+RERANKER_MODEL_NAME=Qwen/Qwen3-Reranker-4B
+RERANKER_DEVICE=cuda:1
+RERANKER_DTYPE=float16
+RERANKER_ATTN_IMPLEMENTATION=sdpa
+RERANKER_BATCH_SIZE=16
+```
+
 ### Using Custom API (vLLM, TGI, etc.)
 
 ```bash
@@ -352,4 +383,3 @@ RERANKER_ENABLED=false
 - Check backend logs for errors
 - Visit API docs: `http://localhost:8000/docs`
 - Check configuration: `http://localhost:8000/health`
-

@@ -24,7 +24,7 @@ async def example_embedding():
     
     # Create embedding config
     embedding_config = ModelConfig(
-        provider=ProviderType.LOCAL,
+        provider=ProviderType.LOCAL_GPU,
         model_name="Qwen/Qwen3-Embedding-4B",
         model_type=ModelType.EMBEDDING,
         embedding_dim=2560,
@@ -66,7 +66,7 @@ async def example_reranking():
     # Create reranker config
     reranker_config = RerankerConfig(
         enabled=True,
-        provider="local",
+        provider="local_gpu",
         model_name="Qwen/Qwen3-Reranker-4B",
         device="cuda:1",
         dtype="float16",
@@ -109,7 +109,7 @@ async def example_embedding_func():
     
     # Create embedding config
     embedding_config = ModelConfig(
-        provider=ProviderType.LOCAL,
+        provider=ProviderType.LOCAL_GPU,
         model_name="Qwen/Qwen3-Embedding-4B",
         model_type=ModelType.EMBEDDING,
         embedding_dim=2560,
@@ -162,4 +162,3 @@ async def main():
 if __name__ == "__main__":
     exit_code = asyncio.run(main())
     sys.exit(exit_code)
-

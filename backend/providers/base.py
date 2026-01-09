@@ -92,7 +92,7 @@ class BaseEmbeddingProvider(ABC):
         self,
         texts: List[str],
         **kwargs
-    ) -> List[List[float]]:
+    ) -> Any:
         """
         Generate embeddings for input texts.
         
@@ -101,7 +101,11 @@ class BaseEmbeddingProvider(ABC):
             **kwargs: Provider-specific parameters
             
         Returns:
-            List of embedding vectors
+            Embeddings for each input text.
+
+            In this codebase, providers return a ``numpy.ndarray`` (float32) with
+            shape ``(len(texts), embedding_dim)`` for performance and compatibility
+            with LightRAG/RAGAnything.
         """
         pass
     
@@ -134,4 +138,3 @@ class BaseRerankerProvider(ABC):
             List of relevance scores (same length as documents)
         """
         pass
-

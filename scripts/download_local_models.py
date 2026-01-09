@@ -180,6 +180,7 @@ def verify_model_loading(
         # Clear CUDA cache before loading
         torch.cuda.empty_cache()
         initial_memory = torch.cuda.memory_allocated(device) / 1024**3
+        initial_reserved = torch.cuda.memory_reserved(device) / 1024**3
         
         model_type = model_info["type"]
         print(f"Model type: {model_type}")
@@ -230,16 +231,43 @@ def verify_model_loading(
             results["embedding_dim"] = actual_dim
             
         elif model_type == "reranker":
-            # Load with AutoModelForSequenceClassification
-            from transformers import AutoModelForSequenceClassification, AutoTokenizer
+            # Qwen3-Reranker is a CausalLM model. Scores are derived from the
+            # next-token probability of "yes" vs "no" given the official prompt.
+            from transformers import AutoModelForCausalLM, AutoTokenizer
             
-            print("Loading with AutoModelForSequenceClassification...")
-            tokenizer = AutoTokenizer.from_pretrained(model_id)
-            model = AutoModelForSequenceClassification.from_pretrained(
+            print("Loading with AutoModelForCausalLM...")
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_id,
+                padding_side="left",
+                trust_remote_code=True,
+            )
+            # Ensure pad token exists for batched padding
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+            if tokenizer.pad_token_id is None:
+                tokenizer.pad_token_id = tokenizer.eos_token_id
+
+            # Resolve yes/no token IDs (must be single tokens)
+            yes_ids = tokenizer("yes", add_special_tokens=False).input_ids
+            no_ids = tokenizer("no", add_special_tokens=False).input_ids
+            if len(yes_ids) != 1 or len(no_ids) != 1:
+                raise RuntimeError(
+                    f'Expected "yes"/"no" to be single tokens, got yes={yes_ids}, no={no_ids}'
+                )
+            token_yes_id = yes_ids[0]
+            token_no_id = no_ids[0]
+
+            model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 torch_dtype=torch.float16,
                 attn_implementation="sdpa",  # Pascal-compatible
+                trust_remote_code=True,
             ).to(device)
+            model.eval()
+
+            # Align pad token id in model config if needed
+            if getattr(model.config, "pad_token_id", None) is None:
+                model.config.pad_token_id = tokenizer.pad_token_id
             
             print(f"Model dtype: {model.dtype}")
             attn_backend = getattr(getattr(model, 'config', None), 'attn_implementation', None)
@@ -250,25 +278,50 @@ def verify_model_loading(
             print("Testing inference...")
             query = "What is the capital of France?"
             document = "Paris is the capital and largest city of France."
-            
-            inputs = tokenizer(
-                query,
-                document,
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
-            ).to(device)
-            
+
+            instruction = "Given a web search query, retrieve relevant passages that answer the query"
+            pair = (
+                f"<Instruct>: {instruction}\n"
+                f"<Query>: {query}\n"
+                f"<Document>: {document}"
+            )
+
+            prefix = (
+                "<|im_start|>system\n"
+                "Judge whether the Document meets the requirements based on the Query and the Instruct provided. "
+                "Note that the answer can only be \"yes\" or \"no\"."
+                "<|im_end|>\n<|im_start|>user\n"
+            )
+            suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+
+            prefix_tokens = tokenizer.encode(prefix, add_special_tokens=False)
+            suffix_tokens = tokenizer.encode(suffix, add_special_tokens=False)
+            max_length = 8192
+            max_pair_len = max_length - len(prefix_tokens) - len(suffix_tokens)
+            if max_pair_len <= 0:
+                raise RuntimeError("Reranker template too long for max_length=8192")
+
+            enc = tokenizer(
+                [pair],
+                padding=False,
+                truncation="longest_first",
+                return_attention_mask=False,
+                max_length=max_pair_len,
+                add_special_tokens=False,
+            )
+            enc["input_ids"] = [prefix_tokens + enc["input_ids"][0] + suffix_tokens]
+            inputs = tokenizer.pad(enc, padding=True, return_tensors="pt")
+            inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
+
             with torch.no_grad():
                 outputs = model(**inputs)
-                logits = outputs.logits.squeeze()
-                # Handle both single and batch outputs
-                if logits.dim() == 0:
-                    score = logits.item()
-                else:
-                    score = logits[0].item() if logits.numel() > 1 else logits.item()
+                next_logits = outputs.logits[:, -1, :]
+                yes_logits = next_logits[:, token_yes_id]
+                no_logits = next_logits[:, token_no_id]
+                probs_yes = torch.softmax(torch.stack([no_logits, yes_logits], dim=1).float(), dim=1)[:, 1]
+                score = float(probs_yes[0].item())
 
-            print(f"Reranker score: {score:.4f}")
+            print(f"Reranker score (P(yes)): {score:.4f}")
             results["test_score"] = score
         
         else:
@@ -279,9 +332,8 @@ def verify_model_loading(
         # Measure GPU memory after loading
         loaded_memory = torch.cuda.memory_allocated(device) / 1024**3
         reserved_loaded = torch.cuda.memory_reserved(device) / 1024**3
-        reserved_initial = torch.cuda.memory_reserved(device) / 1024**3
         memory_used = loaded_memory - initial_memory
-        reserved_used = reserved_loaded - reserved_initial
+        reserved_used = reserved_loaded - initial_reserved
         
         print(f"GPU memory after loading: {loaded_memory:.2f} GB (allocated)")
         print(f"Memory used by model: {memory_used:.2f} GB (allocated)")

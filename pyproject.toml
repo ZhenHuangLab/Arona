@@ -25,6 +25,9 @@ dependencies = [
     "huggingface_hub",
     "lightrag-hku",
     "mineru[core]",
+    # Qwen3 / GME compatibility (Task T7 local GPU embedding/reranking)
+    # Qwen3 models require transformers>=4.51.0; we pin to 4.51.3 to match the validated environment.
+    "transformers==4.51.3",
     "tqdm",
     "uvicorn>=0.37.0",
 ]
@@ -75,3 +78,8 @@ version = {attr = "raganything.__version__"}
 
 [tool.ruff]
 target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+python_files = ["test_*.py"]
+norecursedirs = ["scripts", "examples", "rag_storage", "uploads", "frontend", "logs", ".venv"]
