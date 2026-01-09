@@ -1,0 +1,49 @@
+# Backend API Dependencies (Qwen3-VL profile)
+#
+# Use this requirements file if you want to run:
+# - Qwen/Qwen3-VL-Embedding-2B / 8B
+# - Qwen/Qwen3-VL-Reranker-2B / 8B
+#
+# Notes for GTX 1080 Ti (Pascal, sm_61):
+# - Prefer CUDA 11.8 wheels. Newer CUDA 12.x wheels may drop Pascal support.
+# - Install PyTorch separately with a compatible CUDA build, e.g.:
+#   pip install torch==2.3.1 torchvision==0.18.1 triton==2.3.1 --index-url https://download.pytorch.org/whl/cu118
+#
+# If you still rely on the legacy GME-Qwen2-VL provider, keep using
+# `requirements-backend.txt` (pinned transformers==4.51.3). Qwen3-VL requires
+# newer transformers versions and may not be compatible with that pin.
+
+# FastAPI and server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6  # For file uploads
+
+# Data validation and configuration
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+pyyaml>=6.0
+
+# HTTP client (for testing)
+httpx>=0.25.0
+requests>=2.31.0
+
+# Async support
+aiofiles>=23.0.0
+
+# Logging and monitoring
+python-json-logger>=2.0.0
+
+# =====================================================================
+# Local GPU Dependencies (Qwen3-VL)
+# =====================================================================
+transformers>=4.57.0
+qwen-vl-utils>=0.0.14
+sentence-transformers>=2.3.0
+accelerate>=0.25.0
+safetensors>=0.4.0
+
+# NumPy
+numpy<2
+
+# Image processing (required by processors)
+pillow>=10.0.0

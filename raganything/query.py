@@ -403,14 +403,36 @@ class QueryMixin:
                 # Get appropriate processor
                 processor = get_processor_for_type(self.modal_processors, content_type)
 
+                if content_type in {"image", "table"}:
+                    # For image-to-image / image-to-table retrieval, include a stable marker that the
+                    # embedding/reranker providers can parse to load the image pixels. We keep the
+                    # "Image Path:" key to match the chunk templates used during indexing.
+                    img_path = (
+                        content.get("img_path")
+                        or content.get("image_path")
+                        or content.get("file_path")
+                    )
+                    if isinstance(img_path, str) and img_path.strip():
+                        header = "Query Image" if content_type == "image" else "Query Table Image"
+                        enhanced_parts.append(
+                            f"\n{header}:\n"
+                            f"Image Path: {img_path.strip()}"
+                        )
+
                 if processor:
-                    # Generate content description
+                    # Generate content description (used by the LLM/VLM and for text-side retrieval).
                     description = await self._generate_query_content_description(
                         processor, content, content_type
                     )
-                    enhanced_parts.append(
-                        f"\nRelated {content_type} content: {description}"
-                    )
+                    if content_type == "image":
+                        enhanced_parts.append(f"Visual Analysis: {description}")
+                    elif content_type == "table" and img_path:
+                        # When table queries include an image, keep the description near the image marker.
+                        enhanced_parts.append(f"Analysis: {description}")
+                    else:
+                        enhanced_parts.append(
+                            f"\nRelated {content_type} content: {description}"
+                        )
                 else:
                     # If no appropriate processor, use basic description
                     basic_desc = str(content)[:200]
@@ -482,7 +504,8 @@ class QueryMixin:
         # If image doesn't exist or processing failed, use existing information
         parts = []
         if image_path:
-            parts.append(f"Image path: {image_path}")
+            # Keep "Image Path:" capitalization consistent with prompt parsing utilities.
+            parts.append(f"Image Path: {image_path}")
         if captions:
             parts.append(f"Image captions: {', '.join(captions)}")
         if footnotes:

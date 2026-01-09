@@ -229,6 +229,8 @@ class RerankerConfig:
     attn_implementation: str = "sdpa"
     batch_size: int = 16
     max_length: int = 8192
+    instruction: Optional[str] = None
+    system_prompt: Optional[str] = None
 
     # For API-based reranker (future)
     api_key: Optional[str] = None
@@ -252,6 +254,9 @@ class RerankerConfig:
             config.model_name = os.getenv("RERANKER_MODEL_NAME")
             config.model_path = os.getenv("RERANKER_MODEL_PATH")
             config.device = os.getenv("RERANKER_DEVICE")
+
+            config.instruction = os.getenv("RERANKER_INSTRUCTION")
+            config.system_prompt = os.getenv("RERANKER_SYSTEM_PROMPT")
 
             dtype = os.getenv("RERANKER_DTYPE")
             if dtype:

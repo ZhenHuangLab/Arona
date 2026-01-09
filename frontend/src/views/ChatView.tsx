@@ -31,8 +31,8 @@ import type { QueryMode } from '@/types/chat';
 export const ChatView: React.FC = () => {
   const { messages, currentMode, sendMessage, clearConversation, isSending } = useChat();
 
-  const handleSendMessage = (message: string, mode: QueryMode) => {
-    sendMessage(message, mode);
+  const handleSendMessage = (message: string, mode: QueryMode, imageFile?: File | null) => {
+    sendMessage(message, mode, imageFile);
   };
 
   const handleClearConversation = () => {
@@ -98,4 +98,3 @@ export const ChatView: React.FC = () => {
     </div>
   );
 };
-

@@ -98,15 +98,24 @@ class ModelFactory:
             )
 
         if is_local_gpu:
-            # Check if this is a multimodal model (GME-Qwen2-VL)
-            is_multimodal = "gme" in config.model_name.lower() or "qwen2-vl" in config.model_name.lower()
+            model_name_lower = config.model_name.lower()
 
+            # Qwen3-VL embedding models (multimodal-capable; currently used in text-only path)
+            if "qwen3-vl-embedding" in model_name_lower:
+                from backend.providers.qwen3_vl import Qwen3VLEmbeddingProvider
+
+                return Qwen3VLEmbeddingProvider(config)
+
+            # Multimodal embedding models (GME-Qwen2-VL family)
+            is_multimodal = "gme" in model_name_lower or "qwen2-vl" in model_name_lower
             if is_multimodal:
                 from backend.providers.local_embedding import MultimodalEmbeddingProvider
+
                 return MultimodalEmbeddingProvider(config)
-            else:
-                from backend.providers.local_embedding import LocalEmbeddingProvider
-                return LocalEmbeddingProvider(config)
+
+            from backend.providers.local_embedding import LocalEmbeddingProvider
+
+            return LocalEmbeddingProvider(config)
 
         # Check if this is a Jina model (by model name or base URL)
         is_jina = (
@@ -146,29 +155,42 @@ class ModelFactory:
                 if not config.model_name:
                     raise ValueError("Local GPU reranker requires model_name")
 
-                from backend.providers.local_embedding import LocalRerankerProvider
                 from backend.config import ModelConfig, ModelType
 
                 # Create ModelConfig for LocalRerankerProvider
+                extra_params: Dict[str, Any] = {
+                    "device": config.device,
+                    "dtype": config.dtype,
+                    "attn_implementation": config.attn_implementation,
+                    "model_path": config.model_path,
+                    "batch_size": config.batch_size,
+                    "max_length": config.max_length,
+                }
+                if config.instruction:
+                    extra_params["instruction"] = config.instruction
+                if config.system_prompt:
+                    extra_params["system_prompt"] = config.system_prompt
+
                 model_config = ModelConfig(
                     provider=ProviderType.LOCAL,
                     model_name=config.model_name,
                     model_type=ModelType.RERANKER,
-                    extra_params={
-                        "device": config.device,
-                        "dtype": config.dtype,
-                        "attn_implementation": config.attn_implementation,
-                        "model_path": config.model_path,
-                        "batch_size": config.batch_size,
-                        "max_length": config.max_length,
-                    }
+                    extra_params=extra_params,
                 )
 
-                reranker = LocalRerankerProvider(model_config)
+                model_name_lower = config.model_name.lower()
+                if "qwen3-vl-reranker" in model_name_lower:
+                    from backend.providers.qwen3_vl import Qwen3VLRerankerProvider
+
+                    reranker = Qwen3VLRerankerProvider(model_config)
+                else:
+                    from backend.providers.local_embedding import LocalRerankerProvider
+
+                    reranker = LocalRerankerProvider(model_config)
 
                 # Return async wrapper
-                async def rerank_func(query: str, documents: List[str], **_kwargs) -> List[Dict[str, float]]:
-                    scores = await reranker.rerank(query, documents)
+                async def rerank_func(query: str, documents: List[str], **kwargs) -> List[Dict[str, float]]:
+                    scores = await reranker.rerank(query, documents, **kwargs)
                     return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
 
                 return rerank_func
@@ -186,7 +208,10 @@ class ModelFactory:
                 )
 
                 # Return async wrapper
-                async def rerank_func(query: str, documents: List[str], **_kwargs) -> List[Dict[str, float]]:
+                async def rerank_func(query: str, documents: List[str], **kwargs) -> List[Dict[str, float]]:
+                    # FlagEmbedding rerankers don't currently consume extra kwargs.
+                    # Keep the signature flexible for future LightRAG extensions.
+                    _ = kwargs
                     scores = await reranker.score_async(query, documents)
                     return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
 
@@ -213,7 +238,9 @@ class ModelFactory:
             )
 
             # Return async wrapper
-            async def rerank_func(query: str, documents: List[str], **_kwargs) -> List[Dict[str, float]]:
+            async def rerank_func(query: str, documents: List[str], **kwargs) -> List[Dict[str, float]]:
+                # API rerankers use a fixed contract today.
+                _ = kwargs
                 scores = await reranker.score_async(query, documents)
                 return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
 
@@ -344,9 +371,13 @@ class ModelFactory:
         """
         provider = ModelFactory.create_embedding_provider(config)
 
-        async def embed_func(texts: List[str]) -> Any:
-            """RAGAnything-compatible embedding function."""
-            return await provider.embed(texts)
+        async def embed_func(texts: List[str], **kwargs) -> Any:
+            """RAGAnything-compatible embedding function.
+
+            Note: LightRAG may pass scheduling kwargs like ``_priority``.
+            Providers are expected to ignore unknown kwargs.
+            """
+            return await provider.embed(texts, **kwargs)
 
         return EmbeddingFunc(
             embedding_dim=provider.embedding_dim,
@@ -368,9 +399,13 @@ class ModelFactory:
         Returns:
             EmbeddingFunc instance compatible with RAGAnything
         """
-        async def embed_func(texts: List[str]) -> Any:
-            """RAGAnything-compatible embedding function."""
-            return await provider.embed(texts)
+        async def embed_func(texts: List[str], **kwargs) -> Any:
+            """RAGAnything-compatible embedding function.
+
+            Note: LightRAG may pass scheduling kwargs like ``_priority``.
+            Providers are expected to ignore unknown kwargs.
+            """
+            return await provider.embed(texts, **kwargs)
 
         max_token_size = 8192
         provider_config = getattr(provider, "config", None)

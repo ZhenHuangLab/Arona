@@ -29,14 +29,23 @@ const convertToAPIMessage = (message: { role: 'user' | 'assistant'; content: str
 export function useChat() {
   const { messages, currentMode, isLoading, addMessage, setLoading, clearMessages, setMode } = useChatStore();
 
+  const fileToDataURL = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Failed to read image file'));
+      reader.readAsDataURL(file);
+    });
+
   // Mutation for sending messages
   const sendMessageMutation = useMutation({
-    mutationFn: async ({ message, mode }: { message: string; mode: QueryMode }) => {
+    mutationFn: async ({ message, mode, imageFile }: { message: string; mode: QueryMode; imageFile?: File | null }) => {
       // Add user message to store
+      const displayMessage = imageFile ? `${message}\n[Attached image: ${imageFile.name}]` : message;
       addMessage({
         id: `user-${Date.now()}`,
         role: 'user',
-        content: message,
+        content: displayMessage,
         timestamp: new Date().toISOString(),
         mode,
       });
@@ -45,10 +54,22 @@ export function useChat() {
       const history: ConversationMessage[] = messages.map(convertToAPIMessage);
 
       // Call API
+      let multimodal_content: Array<{ type: 'image'; img_base64: string }> | undefined;
+      if (imageFile) {
+        // Basic client-side guard to avoid huge JSON payloads.
+        const maxBytes = 8 * 1024 * 1024; // 8MB
+        if (imageFile.size > maxBytes) {
+          throw new Error(`Image too large (${Math.round(imageFile.size / 1024 / 1024)}MB). Please use an image <= 8MB.`);
+        }
+        const img_base64 = await fileToDataURL(imageFile);
+        multimodal_content = [{ type: 'image', img_base64 }];
+      }
+
       const response = await executeConversationQuery({
         query: message,
         history,
         mode,
+        multimodal_content,
       });
 
       return response;
@@ -84,9 +105,9 @@ export function useChat() {
   /**
    * Send a message
    */
-  const sendMessage = (message: string, mode?: QueryMode) => {
+  const sendMessage = (message: string, mode?: QueryMode, imageFile?: File | null) => {
     const queryMode = mode || currentMode;
-    sendMessageMutation.mutate({ message, mode: queryMode });
+    sendMessageMutation.mutate({ message, mode: queryMode, imageFile });
   };
 
   /**
@@ -114,4 +135,3 @@ export function useChat() {
     isSending: sendMessageMutation.isPending,
   };
 }
-

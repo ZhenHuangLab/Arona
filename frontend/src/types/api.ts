@@ -186,6 +186,16 @@ export interface ConversationRequest {
   top_k?: number;
   max_tokens?: number;
   temperature?: number;
+  multimodal_content?: Array<{
+    type: 'image' | 'table' | 'equation';
+    img_path?: string;
+    img_base64?: string;
+    image_caption?: string;
+    table_data?: string;
+    table_caption?: string;
+    latex?: string;
+    equation_caption?: string;
+  }>;
 }
 
 export interface ConversationResponse {
@@ -251,4 +261,3 @@ export class APIException extends Error {
     this.detail = detail;
   }
 }
-

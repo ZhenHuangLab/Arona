@@ -1,13 +1,13 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Send, Loader2 } from 'lucide-react';
+import { Send, Loader2, ImagePlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ModeSelector } from './ModeSelector';
 import type { QueryMode } from '@/types/chat';
 
 interface InputBarProps {
-  onSend: (message: string, mode: QueryMode) => void;
+  onSend: (message: string, mode: QueryMode, imageFile?: File | null) => void;
   disabled?: boolean;
   isLoading?: boolean;
   defaultMode?: QueryMode;
@@ -38,12 +38,18 @@ export function InputBar({
 }: InputBarProps) {
   const [message, setMessage] = useState('');
   const [mode, setMode] = useState<QueryMode>(defaultMode);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSend = () => {
     const trimmedMessage = message.trim();
-    if (trimmedMessage && !disabled && !isLoading) {
-      onSend(trimmedMessage, mode);
+    const canSend = (!disabled && !isLoading) && (trimmedMessage || imageFile);
+
+    if (canSend) {
+      const finalMessage = trimmedMessage || 'Search similar images.';
+      onSend(finalMessage, mode, imageFile);
       setMessage('');
+      setImageFile(null);
     }
   };
 
@@ -81,10 +87,37 @@ export function InputBar({
           aria-describedby="input-hint"
         />
 
+        {/* Image Attachment */}
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0] || null;
+              if (!file) return;
+              if (!file.type.startsWith('image/')) return;
+              setImageFile(file);
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-[60px] w-[60px] shrink-0"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || isLoading}
+            aria-label={imageFile ? 'Replace attached image' : 'Attach an image'}
+          >
+            <ImagePlus className="h-5 w-5" aria-hidden="true" />
+          </Button>
+        </div>
+
         {/* Send Button - Touch-friendly size */}
         <Button
           onClick={handleSend}
-          disabled={disabled || isLoading || !message.trim()}
+          disabled={disabled || isLoading || (!message.trim() && !imageFile)}
           size="icon"
           className="h-[60px] w-[60px] shrink-0"
           aria-label={isLoading ? 'Sending message' : 'Send message'}
@@ -98,6 +131,25 @@ export function InputBar({
         </Button>
       </div>
 
+      {/* Attached image indicator */}
+      {imageFile && (
+        <div className="mt-2 flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-xs">
+          <span className="truncate" title={imageFile.name}>
+            Attached image: {imageFile.name}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => setImageFile(null)}
+            aria-label="Remove attached image"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
+      )}
+
       {/* Hidden hint for screen readers */}
       <span id="input-hint" className="sr-only">
         Press Enter to send, Shift+Enter for new line
@@ -105,4 +157,3 @@ export function InputBar({
     </div>
   );
 }
-

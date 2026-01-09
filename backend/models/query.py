@@ -109,6 +109,10 @@ class ConversationRequest(BaseModel):
     """Request model for conversational query."""
     
     query: str = Field(..., description="User query text", min_length=1)
+    multimodal_content: Optional[List[MultimodalContent]] = Field(
+        default=None,
+        description="Optional multimodal content items for this turn (e.g., query image)",
+    )
     history: Optional[List[ConversationMessage]] = Field(
         default=None,
         description="Conversation history"
@@ -139,4 +143,3 @@ class ConversationResponse(BaseModel):
         ...,
         description="Updated conversation history"
     )
-
