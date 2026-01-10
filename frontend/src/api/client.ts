@@ -7,8 +7,17 @@
 import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig, type AxiosResponse } from 'axios';
 import { APIException } from '../types';
 
-// Get backend URL from environment variable or use default
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+/**
+ * Backend base URL selection
+ *
+ * - If `VITE_BACKEND_URL` is provided, use it (works for production and remote backends).
+ * - Otherwise, in dev mode default to same-origin so Vite can proxy `/api` to the backend
+ *   (configured in `vite.config.ts`). This removes the need for extra env vars during local dev.
+ * - In production builds without `VITE_BACKEND_URL`, use same-origin (assumes a reverse proxy
+ *   or the backend serves the frontend under the same origin).
+ */
+const configuredBackendUrl = import.meta.env.VITE_BACKEND_URL as string | undefined;
+const BACKEND_URL = configuredBackendUrl || '';
 
 /**
  * Create axios instance with default configuration
@@ -89,4 +98,3 @@ export const createFormDataClient = (): AxiosInstance => {
 
 export default apiClient;
 export { BACKEND_URL };
-

@@ -2,9 +2,12 @@
 
 > **Custom Frontend/Backend Architecture** replacing OpenWebUI integration
 
+> ⚠️ Note: This file is kept as a historical design note. The current, maintained
+> startup/config instructions are in `README.md` (React/Vite frontend + FastAPI backend).
+
 ## 🎯 What's New
 
-- ✅ **Custom Gradio Frontend** - Clean, simple UI for document upload and queries
+- ✅ **Custom React Frontend** - Clean, simple UI for document upload and queries
 - ✅ **FastAPI Backend** - Production-ready REST API
 - ✅ **Flexible Model Providers** - Support for OpenAI, Azure, LM Studio, vLLM, and any OpenAI-compatible API
 - ✅ **No Ollama Dependency** - Use any LLM provider via base_url + api_key
@@ -17,18 +20,23 @@
 ### 1. Install Dependencies
 
 ```bash
-pip install -r requirements-backend.txt
-pip install -r requirements-frontend.txt
+# Backend (recommended)
+uv sync
+
+# Frontend
+cd frontend
+npm install
+cd ..
 ```
 
 ### 2. Configure Environment
 
-**Backend Configuration:**
+**Unified Configuration (Recommended):**
 ```bash
-cp env.backend.example .env.backend
+cp env.example .env
 ```
 
-Edit `.env.backend` with your API keys:
+Edit `.env` with your API keys:
 
 ```bash
 # Minimal OpenAI configuration
@@ -42,14 +50,9 @@ EMBEDDING_API_KEY=sk-your-api-key-here
 EMBEDDING_EMBEDDING_DIM=3072
 ```
 
-**Frontend Configuration (Optional):**
-```bash
-cd frontend
-cp .env.example .env
-cd ..
-```
+**Frontend Configuration (Optional):** see `frontend/env.example` (only `VITE_` vars are exposed to the browser)
 
-> **📖 For detailed configuration options, see [Configuration Guide](docs/CONFIGURATION.md)**
+> Tip: dev 模式下前端默认走 Vite proxy，一般无需配置 `VITE_BACKEND_URL`。
 
 ### 3. Start Services
 
@@ -60,7 +63,7 @@ bash scripts/start_all.sh
 
 ### 4. Open Browser
 
-- **Frontend**: http://localhost:7860
+- **Frontend**: http://localhost:5173
 - **API Docs**: http://localhost:8000/docs
 
 ## 📁 Project Structure
@@ -74,8 +77,7 @@ RAG-Anything/
 │   ├── providers/       # Model provider adapters
 │   ├── routers/         # API endpoints
 │   └── services/        # Business logic
-├── frontend/            # Gradio UI
-│   └── app.py
+├── frontend/            # React + Vite UI
 ├── configs/             # Configuration examples
 ├── docs/                # Documentation
 └── scripts/             # Deployment scripts
@@ -283,4 +285,3 @@ Same as RAG-Anything main project.
 ---
 
 **Ready to get started?** See [Quick Start Guide](docs/QUICKSTART_NEW_ARCHITECTURE.md)
-

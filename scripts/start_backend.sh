@@ -182,34 +182,43 @@ echo "RAG-Anything Backend Server"
 echo "============================"
 echo ""
 
-# Check if .env.backend exists
-if [ -f .env.backend ]; then
-    echo "✓ Found .env.backend"
+# Check if an env file exists (optional)
+# Backend prefers `.env` and falls back to legacy `.env.backend`.
+if [ -f .env ]; then
+    echo "✓ Found .env"
+    echo "  Note: Backend will load .env automatically via Python dotenv."
     echo ""
-    echo "Note: Backend will load .env.backend automatically via Python's dotenv."
-    echo "      Shell variables like \${HOME} should be set in your shell environment,"
-    echo "      not in .env.backend, as they won't be expanded in .env files."
+elif [ -f .env.backend ]; then
+    echo "✓ Found .env.backend"
+    echo "  Note: Backend will load .env.backend automatically via Python dotenv."
     echo ""
 else
-    echo "⚠ Warning: .env.backend not found."
+    echo "⚠ Warning: No .env or .env.backend found."
     echo "   Using default configuration and environment variables."
     echo ""
 fi
 
 # Check for HuggingFace environment variables (needed for MinerU)
-if [ -z "$HF_HOME" ]; then
-    echo "⚠ Warning: HF_HOME not set. MinerU may fail."
-    echo "   Set it in your shell: export HF_HOME=\"\$HOME/.huggingface\""
+if [ -z "${HF_HOME:-}" ]; then
+    echo "⚠ Warning: HF_HOME not set in the current shell. MinerU may fail."
+    echo "   If you set HF_HOME inside .env/.env.backend, the backend will still see it,"
+    echo "   but this shell-level check will not."
     echo ""
 fi
 
-# Default values
-HOST=${API_HOST:-0.0.0.0}
-PORT=${API_PORT:-8000}
-
 echo "Configuration:"
-echo "  Host: $HOST"
-echo "  Port: $PORT"
+if [ -n "${API_HOST:-}" ]; then
+    echo "  Host: $API_HOST"
+else
+    echo "  Host: (from .env/.env.backend or default 0.0.0.0)"
+fi
+
+if [ -n "${API_PORT:-}" ]; then
+    echo "  Port: $API_PORT"
+else
+    echo "  Port: (from .env/.env.backend or default 8000)"
+fi
+
 echo "  Working Directory: ${WORKING_DIR:-./rag_storage}"
 echo ""
 
@@ -224,5 +233,5 @@ echo "Starting backend server..."
 echo ""
 
 # Start backend server
-# Note: Backend will load .env.backend automatically
-${PYTHON_CMD} -m backend.main --host "$HOST" --port "$PORT" "$@"
+# Note: backend.main will load `.env` / `.env.backend` and pick up defaults from env vars.
+exec ${PYTHON_CMD} -m backend.main "$@"

@@ -109,11 +109,31 @@ class ModelFactory:
             # Multimodal embedding models (GME-Qwen2-VL family)
             is_multimodal = "gme" in model_name_lower or "qwen2-vl" in model_name_lower
             if is_multimodal:
-                from backend.providers.local_embedding import MultimodalEmbeddingProvider
+                try:
+                    from backend.providers.local_embedding import MultimodalEmbeddingProvider
+                except ImportError as e:
+                    raise ImportError(
+                        "Failed to import local GPU multimodal embedding provider. "
+                        "This usually means your PyTorch/CUDA runtime is not correctly installed. "
+                        "If you don't need local GPU embedding, configure an API-based provider "
+                        "(e.g. EMBEDDING_PROVIDER=openai/custom) instead. "
+                        "Original error: "
+                        + str(e)
+                    ) from e
 
                 return MultimodalEmbeddingProvider(config)
 
-            from backend.providers.local_embedding import LocalEmbeddingProvider
+            try:
+                from backend.providers.local_embedding import LocalEmbeddingProvider
+            except ImportError as e:
+                raise ImportError(
+                    "Failed to import local GPU embedding provider. "
+                    "This usually means your PyTorch/CUDA runtime is not correctly installed. "
+                    "If you don't need local GPU embedding, configure an API-based provider "
+                    "(e.g. EMBEDDING_PROVIDER=openai/custom) instead. "
+                    "Original error: "
+                    + str(e)
+                ) from e
 
             return LocalEmbeddingProvider(config)
 
@@ -184,7 +204,16 @@ class ModelFactory:
 
                     reranker = Qwen3VLRerankerProvider(model_config)
                 else:
-                    from backend.providers.local_embedding import LocalRerankerProvider
+                    try:
+                        from backend.providers.local_embedding import LocalRerankerProvider
+                    except ImportError as e:
+                        raise ImportError(
+                            "Failed to import local GPU reranker provider. "
+                            "This usually means your PyTorch/CUDA runtime is not correctly installed. "
+                            "If you don't need local GPU reranking, set RERANKER_PROVIDER=api or disable reranking. "
+                            "Original error: "
+                            + str(e)
+                        ) from e
 
                     reranker = LocalRerankerProvider(model_config)
 

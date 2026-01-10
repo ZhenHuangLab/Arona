@@ -2,6 +2,11 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+const backendTarget =
+  process.env.VITE_BACKEND_URL ||
+  process.env.BACKEND_URL ||
+  `http://localhost:${process.env.API_PORT || '8000'}`
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
@@ -16,15 +21,15 @@ export default defineConfig({
     proxy: {
       // Proxy API requests to backend during development
       '/api': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/ready': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
     },
