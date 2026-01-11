@@ -20,7 +20,7 @@
       <Title>ChatGPT 风格聊天 UI 重构 + 后端 SQLite 会话存储（Route B）</Title>
       <RepoRoot>./</RepoRoot>
       <Branch>feature/T8-chat-ui-sessions-sqlite</Branch>
-      <Status>planning</Status>
+      <Status>in-progress</Status>
       <Goal>实现多会话（session/thread）聊天：前端支持会话列表/切换/搜索/新建/删除/重命名，后端使用 SQLite 持久化会话与消息；/documents 与 /chat UI 风格统一且侧边栏提供快捷入口；设置入口位于左下角用户区域。</Goal>
       <NonGoals>
         <Item>不做用户登录/权限系统（默认单用户）。</Item>
@@ -128,10 +128,10 @@
         <Item>
           <Label>Sessions CRUD：</Label>
           <Text>
-            - `POST /api/chat/sessions` → create（返回 `session_id`）  
-            - `GET /api/chat/sessions?limit=&cursor_updated_at=&cursor_id=&q=` → list（按 updated_at desc，支持分页与搜索；cursor 为上一页末尾的 (updated_at,id)）  
+            - `POST /api/chat/sessions` → create（返回 `id`）  
+            - `GET /api/chat/sessions?limit=&cursor=&q=` → list（按 updated_at desc，支持分页与搜索；cursor 为上一页返回的 next_cursor，Base64(JSON): {updated_at,id}）  
             - `GET /api/chat/sessions/{session_id}` → get session meta  
-            - `GET /api/chat/sessions/{session_id}/messages?limit=&before_created_at=&before_id=` → list messages（支持分页）  
+            - `GET /api/chat/sessions/{session_id}/messages?limit=&cursor=` → list messages（支持分页；cursor 为上一页返回的 next_cursor，Base64(JSON): {created_at,id}）  
             - `PATCH /api/chat/sessions/{session_id}` → rename/title update  
             - `DELETE /api/chat/sessions/{session_id}` → delete（MVP 可软删除：写 deleted_at；可选提供 `?hard=true` 做物理删除）
           </Text>
@@ -142,7 +142,7 @@
             - `POST /api/chat/sessions/{session_id}/turn`  
               入参：`request_id`（幂等用，前端每次发送生成 uuid），`query`, `mode`, `multimodal_content?`, `max_tokens?`, `temperature?`, `history_limit?`, `max_history_tokens?`  
               服务端：  
-              1) 幂等检查：若 `(session_id, request_id)` 已存在且 completed，则直接返回已生成的 messages  
+              1) 幂等检查：若 `request_id` 已存在且 status=completed 且 payload_hash 一致，则直接返回已生成的 messages；若 payload_hash 不一致或 status=pending，则返回 409  
               2) 写入 user message（短事务，不持锁等待 LLM）  
               3) 从 DB 取最近消息（按 limit/token budget 截断）组装 history → 调用现有 `rag_service.query(...)`  
               4) 写入 assistant message + 更新 session.updated_at/title  
@@ -236,14 +236,468 @@
 
     <PhaseBlock>
       <PhaseHeading>Phase P0 — 契约与验收（冻结范围）</PhaseHeading>
+      <FreezeStatus>
+        <Completed>2026-01-11</Completed>
+        <FrozenScope>
+          API endpoints (request/response shape)、SQLite DDL、分页约定、幂等性策略、错误响应 schema、默认值配置。
+          后续 P1-P6 实现必须严格遵循本契约；如需变更须先更新本节并记录 Breaking Change。
+        </FrozenScope>
+      </FreezeStatus>
       <Plan>
         <Intent>明确并冻结：DB schema、API request/response、前端路由与关键交互，输出验收脚本与边界条件。</Intent>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             P0.1  默认值与配置（Frozen Defaults）
+        ═══════════════════════════════════════════════════════════════════ -->
+        <FrozenDefaults>
+          <Default key="HISTORY_LIMIT" value="20">turn API 默认取最近 N 条 messages 组装 history</Default>
+          <Default key="MAX_HISTORY_TOKENS" value="8000">动态截断 history 的 token 上限（含 system prompt）</Default>
+          <Default key="SESSIONS_DEFAULT_LIMIT" value="20">GET /sessions 默认每页条数</Default>
+          <Default key="MESSAGES_DEFAULT_LIMIT" value="50">GET /messages 默认每页条数</Default>
+          <Default key="BUSY_TIMEOUT_MS" value="30000">SQLite 连接 busy_timeout（毫秒）</Default>
+          <Default key="SESSION_TITLE_MAX_LEN" value="100">自动生成 title 的最大字符数（截断）</Default>
+          <Default key="CHAT_DB_PATH" value="backend/data/chat.db">默认数据库路径（可通过 env 覆盖）</Default>
+        </FrozenDefaults>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             P0.2  SQLite Schema DDL（Frozen）
+        ═══════════════════════════════════════════════════════════════════ -->
+        <SQLiteSchema>
+          <Description>
+            所有 id 采用 UUID (TEXT)；时间戳采用 ISO8601 字符串（UTC）；metadata 以 JSON 字符串存储。
+          </Description>
+          <DDL><![CDATA[
+-- ===== PRAGMA（每次连接时执行） =====
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA foreign_keys = ON;
+PRAGMA busy_timeout = 30000;
+
+-- ===== TABLE: chat_sessions =====
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id              TEXT PRIMARY KEY,                           -- UUID
+    title           TEXT NOT NULL DEFAULT 'New Chat',           -- 会话标题
+    user_id         TEXT NULL,                                  -- 预留多用户
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    deleted_at      TEXT NULL,                                  -- 软删除时间戳
+    metadata_json   TEXT NULL                                   -- 扩展字段 JSON
+);
+
+-- 索引：列表按 updated_at DESC 分页
+CREATE INDEX IF NOT EXISTS idx_sessions_updated ON chat_sessions(updated_at DESC);
+-- 索引：软删除过滤（partial index）
+CREATE INDEX IF NOT EXISTS idx_sessions_active ON chat_sessions(updated_at DESC) WHERE deleted_at IS NULL;
+-- 索引：预留多用户查询
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON chat_sessions(user_id, updated_at DESC) WHERE user_id IS NOT NULL;
+
+-- ===== TABLE: chat_messages =====
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id              TEXT PRIMARY KEY,                           -- UUID
+    session_id      TEXT NOT NULL,                              -- FK → chat_sessions.id
+    role            TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+    content         TEXT NOT NULL,                              -- 消息正文
+    token_count     INTEGER NULL,                               -- 用于 history 截断
+    user_id         TEXT NULL,                                  -- 预留多用户
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    metadata_json   TEXT NULL,                                  -- mode, img_path, error, etc.
+    FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+);
+
+-- 索引：按 session 分页回放
+CREATE INDEX IF NOT EXISTS idx_messages_session_created ON chat_messages(session_id, created_at DESC);
+
+-- ===== TABLE: chat_turns（幂等性去重） =====
+CREATE TABLE IF NOT EXISTS chat_turns (
+    id                      TEXT PRIMARY KEY,                   -- request_id（由前端生成 UUID）
+    session_id              TEXT NOT NULL,
+    payload_hash            TEXT NOT NULL,                      -- SHA256(canonical JSON of turn request body)
+    user_message_id         TEXT NULL,                          -- FK → chat_messages.id
+    assistant_message_id    TEXT NULL,                          -- FK → chat_messages.id
+    status                  TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'completed', 'failed')),
+    error_detail            TEXT NULL,                          -- 失败时的错误描述
+    created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    completed_at            TEXT NULL,
+    FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_message_id) REFERENCES chat_messages(id) ON DELETE SET NULL,
+    FOREIGN KEY (assistant_message_id) REFERENCES chat_messages(id) ON DELETE SET NULL
+);
+
+-- 索引：按 session 查询 turn 历史
+CREATE INDEX IF NOT EXISTS idx_turns_session ON chat_turns(session_id, created_at DESC);
+          ]]></DDL>
+        </SQLiteSchema>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             P0.3  分页 Cursor 约定（Frozen）
+        ═══════════════════════════════════════════════════════════════════ -->
+        <PaginationContract>
+          <Description>
+            采用 (timestamp, id) 组合游标，避免同一时间戳多条记录时的漏数据问题。
+            游标编码为 Base64(JSON)，客户端视为不透明字符串。
+          </Description>
+
+          <SessionsPagination>
+            <SortOrder>updated_at DESC, id DESC</SortOrder>
+            <QueryParams>
+              <Param name="limit" type="int" optional="true" default="20">每页条数，max=100</Param>
+              <Param name="cursor" type="string" optional="true">上一页返回的 next_cursor</Param>
+              <Param name="q" type="string" optional="true">模糊搜索 title（LIKE %q%）</Param>
+            </QueryParams>
+            <CursorPayload>{"updated_at": "ISO8601", "id": "UUID"}</CursorPayload>
+            <ResponseShape>
+              {
+                "sessions": [...],
+                "next_cursor": "base64..." | null,
+                "has_more": boolean
+              }
+            </ResponseShape>
+          </SessionsPagination>
+
+          <MessagesPagination>
+            <SortOrder>created_at DESC, id DESC（返回时需 reverse 为 ASC 顺序展示）</SortOrder>
+            <QueryParams>
+              <Param name="limit" type="int" optional="true" default="50">每页条数，max=200</Param>
+              <Param name="cursor" type="string" optional="true">上一页返回的 next_cursor（向历史翻页）</Param>
+            </QueryParams>
+            <CursorPayload>{"created_at": "ISO8601", "id": "UUID"}</CursorPayload>
+            <ResponseShape>
+              {
+                "messages": [...],          // 按 created_at ASC 排序（便于前端直接渲染）
+                "next_cursor": "base64..." | null,
+                "has_more": boolean
+              }
+            </ResponseShape>
+          </MessagesPagination>
+        </PaginationContract>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             P0.4  幂等性约定（Frozen）
+        ═══════════════════════════════════════════════════════════════════ -->
+        <IdempotencyContract>
+          <RequestIdLocation>Request body field: "request_id" (required, UUID string)</RequestIdLocation>
+          <PayloadHashAlgorithm>SHA256 of canonical JSON: sorted keys, no whitespace, UTF-8 encoded</PayloadHashAlgorithm>
+          <Behavior>
+            <Case condition="request_id not found in chat_turns">正常执行 turn，写入 chat_turns</Case>
+            <Case condition="request_id found AND payload_hash matches AND status=completed">
+              返回 200 + 已有的 user/assistant messages（幂等重放）
+            </Case>
+            <Case condition="request_id found AND payload_hash differs">
+              返回 409 Conflict（payload 不一致冲突）
+            </Case>
+            <Case condition="request_id found AND status=pending">
+              返回 409 Conflict（turn 正在进行中）
+            </Case>
+            <Case condition="request_id found AND status=failed">
+              返回 200 + turn 失败信息，允许前端选择生成新 request_id 重试
+            </Case>
+          </Behavior>
+          <ConflictResponse409>
+            {
+              "detail": {
+                "code": "IDEMPOTENCY_CONFLICT",
+                "message": "request_id已存在但payload不一致或turn正在进行中",
+                "existing_status": "pending" | "completed",
+                "expected_hash": "sha256...",
+                "received_hash": "sha256..."
+              }
+            }
+          </ConflictResponse409>
+        </IdempotencyContract>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             P0.5  错误响应 Schema（Frozen）
+        ═══════════════════════════════════════════════════════════════════ -->
+        <ErrorResponseSchema>
+          <UnifiedShape>
+            {
+              "detail": {
+                "code": "ERROR_CODE",         // 机器可读错误码
+                "message": "Human readable",  // 用户可读描述
+                "extra": { ... }              // 可选：附加上下文
+              }
+            }
+          </UnifiedShape>
+
+          <ErrorCodes>
+            <Code status="400" code="BAD_REQUEST">通用请求格式错误</Code>
+            <Code status="400" code="EMPTY_QUERY">query 字段为空或仅空白</Code>
+            <Code status="400" code="MISSING_REQUEST_ID">turn 请求缺少 request_id</Code>
+            <Code status="400" code="INVALID_MODE">mode 值不在允许列表</Code>
+            <Code status="400" code="INVALID_CURSOR">cursor 解码失败或格式非法</Code>
+            <Code status="400" code="MULTIMODAL_INVALID">multimodal 参数格式错误或 base64 非法</Code>
+            <Code status="404" code="SESSION_NOT_FOUND">session_id 不存在或已删除</Code>
+            <Code status="404" code="MESSAGE_NOT_FOUND">message_id 不存在</Code>
+            <Code status="409" code="IDEMPOTENCY_CONFLICT">幂等冲突（见 P0.4）</Code>
+            <Code status="422" code="VALIDATION_ERROR">Pydantic 字段校验失败（自动生成）</Code>
+            <Code status="429" code="RATE_LIMITED">请求过于频繁（可选实现）</Code>
+            <Code status="500" code="INTERNAL_ERROR">未捕获的服务端错误</Code>
+            <Code status="500" code="LLM_ERROR">rag_service / LLM 调用失败</Code>
+            <Code status="500" code="STORAGE_ERROR">SQLite 写入/读取失败</Code>
+          </ErrorCodes>
+        </ErrorResponseSchema>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             P0.6  API Endpoints 契约（Frozen）
+        ═══════════════════════════════════════════════════════════════════ -->
+        <APIContract>
+          <!-- ─────────────────────────────────────────────────────────────
+               POST /api/chat/sessions — 创建会话
+          ───────────────────────────────────────────────────────────── -->
+          <Endpoint method="POST" path="/api/chat/sessions">
+            <Description>创建新会话</Description>
+            <RequestBody>
+              {
+                "title": "string (optional, max 100 chars, default: 'New Chat')",
+                "metadata": { ... }   // optional, 任意 JSON
+              }
+            </RequestBody>
+            <ResponseBody status="201">
+              {
+                "id": "uuid",
+                "title": "string",
+                "created_at": "ISO8601",
+                "updated_at": "ISO8601",
+                "deleted_at": null,
+                "metadata": { ... } | null
+              }
+            </ResponseBody>
+            <Errors>
+              <Error status="422">title 超长或格式非法</Error>
+            </Errors>
+          </Endpoint>
+
+          <!-- ─────────────────────────────────────────────────────────────
+               GET /api/chat/sessions — 列出会话（分页+搜索）
+          ───────────────────────────────────────────────────────────── -->
+          <Endpoint method="GET" path="/api/chat/sessions">
+            <Description>列出会话（按 updated_at DESC 分页，过滤已软删除）</Description>
+            <QueryParams>
+              <Param name="limit" type="int" optional="true" default="20" max="100"/>
+              <Param name="cursor" type="string" optional="true"/>
+              <Param name="q" type="string" optional="true">标题模糊搜索</Param>
+            </QueryParams>
+            <ResponseBody status="200">
+              {
+                "sessions": [
+                  {
+                    "id": "uuid",
+                    "title": "string",
+                    "created_at": "ISO8601",
+                    "updated_at": "ISO8601",
+                    "deleted_at": null,
+                    "metadata": { ... } | null,
+                    "message_count": int,           // 该会话消息数（可选，便于 UI 展示）
+                    "last_message_preview": "string" | null  // 最后一条消息预览（截断 50 字符）
+                  },
+                  ...
+                ],
+                "next_cursor": "base64..." | null,
+                "has_more": boolean
+              }
+            </ResponseBody>
+            <Errors>
+              <Error status="400">INVALID_CURSOR</Error>
+            </Errors>
+          </Endpoint>
+
+          <!-- ─────────────────────────────────────────────────────────────
+               GET /api/chat/sessions/{session_id} — 获取会话详情
+          ───────────────────────────────────────────────────────────── -->
+          <Endpoint method="GET" path="/api/chat/sessions/{session_id}">
+            <Description>获取单个会话元信息</Description>
+            <PathParams>
+              <Param name="session_id" type="string" required="true">UUID</Param>
+            </PathParams>
+            <ResponseBody status="200">
+              {
+                "id": "uuid",
+                "title": "string",
+                "created_at": "ISO8601",
+                "updated_at": "ISO8601",
+                "deleted_at": null,
+                "metadata": { ... } | null,
+                "message_count": int
+              }
+            </ResponseBody>
+            <Errors>
+              <Error status="404">SESSION_NOT_FOUND</Error>
+            </Errors>
+          </Endpoint>
+
+          <!-- ─────────────────────────────────────────────────────────────
+               GET /api/chat/sessions/{session_id}/messages — 列出消息（分页）
+          ───────────────────────────────────────────────────────────── -->
+          <Endpoint method="GET" path="/api/chat/sessions/{session_id}/messages">
+            <Description>列出会话消息（分页，向历史翻页）</Description>
+            <PathParams>
+              <Param name="session_id" type="string" required="true">UUID</Param>
+            </PathParams>
+            <QueryParams>
+              <Param name="limit" type="int" optional="true" default="50" max="200"/>
+              <Param name="cursor" type="string" optional="true"/>
+            </QueryParams>
+            <ResponseBody status="200">
+              {
+                "messages": [
+                  {
+                    "id": "uuid",
+                    "session_id": "uuid",
+                    "role": "user" | "assistant" | "system",
+                    "content": "string",
+                    "token_count": int | null,
+                    "created_at": "ISO8601",
+                    "metadata": {
+                      "mode": "string" | null,
+                      "img_path": "string" | null,
+                      "error": "string" | null,
+                      ...
+                    } | null
+                  },
+                  ...
+                ],
+                "next_cursor": "base64..." | null,
+                "has_more": boolean
+              }
+            </ResponseBody>
+            <Notes>
+              - messages 按 created_at ASC 排序返回（便于前端直接渲染）
+              - cursor 用于向历史翻页（加载更早的消息）
+            </Notes>
+            <Errors>
+              <Error status="404">SESSION_NOT_FOUND</Error>
+              <Error status="400">INVALID_CURSOR</Error>
+            </Errors>
+          </Endpoint>
+
+          <!-- ─────────────────────────────────────────────────────────────
+               PATCH /api/chat/sessions/{session_id} — 更新会话
+          ───────────────────────────────────────────────────────────── -->
+          <Endpoint method="PATCH" path="/api/chat/sessions/{session_id}">
+            <Description>更新会话（目前仅支持 title 和 metadata）</Description>
+            <PathParams>
+              <Param name="session_id" type="string" required="true">UUID</Param>
+            </PathParams>
+            <RequestBody>
+              {
+                "title": "string (optional, max 100 chars)",
+                "metadata": { ... }   // optional, merge with existing
+              }
+            </RequestBody>
+            <ResponseBody status="200">
+              {
+                "id": "uuid",
+                "title": "string",
+                "created_at": "ISO8601",
+                "updated_at": "ISO8601",
+                "deleted_at": null,
+                "metadata": { ... } | null
+              }
+            </ResponseBody>
+            <Errors>
+              <Error status="404">SESSION_NOT_FOUND</Error>
+              <Error status="422">title 超长或格式非法</Error>
+            </Errors>
+          </Endpoint>
+
+          <!-- ─────────────────────────────────────────────────────────────
+               DELETE /api/chat/sessions/{session_id} — 删除会话
+          ───────────────────────────────────────────────────────────── -->
+          <Endpoint method="DELETE" path="/api/chat/sessions/{session_id}">
+            <Description>删除会话（默认软删除，可选硬删除）</Description>
+            <PathParams>
+              <Param name="session_id" type="string" required="true">UUID</Param>
+            </PathParams>
+            <QueryParams>
+              <Param name="hard" type="boolean" optional="true" default="false">
+                true: 物理删除（CASCADE 删除 messages + turns）；false: 软删除（设置 deleted_at）
+              </Param>
+            </QueryParams>
+            <ResponseBody status="200">
+              {
+                "id": "uuid",
+                "deleted": true,
+                "hard": boolean,
+                "deleted_at": "ISO8601" | null   // 软删除时返回时间戳，硬删除返回 null
+              }
+            </ResponseBody>
+            <Errors>
+              <Error status="404">SESSION_NOT_FOUND</Error>
+            </Errors>
+          </Endpoint>
+
+          <!-- ─────────────────────────────────────────────────────────────
+               POST /api/chat/sessions/{session_id}/turn — 对话轮次
+          ───────────────────────────────────────────────────────────── -->
+          <Endpoint method="POST" path="/api/chat/sessions/{session_id}/turn">
+            <Description>发送用户消息并获取助手回复（幂等）</Description>
+            <PathParams>
+              <Param name="session_id" type="string" required="true">UUID</Param>
+            </PathParams>
+            <RequestBody>
+              {
+                "request_id": "uuid (REQUIRED, 前端生成，用于幂等)",
+                "query": "string (REQUIRED, 用户消息内容)",
+                "mode": "string (optional, default: 'hybrid')",
+                "multimodal_content": {
+                  "img_base64": "string (optional, 将落盘存储，不入 DB)",
+                  "img_mime_type": "string (optional, e.g. 'image/png')"
+                } | null,
+                "max_tokens": "int (optional)",
+                "temperature": "float (optional)",
+                "history_limit": "int (optional, default: 20)",
+                "max_history_tokens": "int (optional, default: 8000)"
+              }
+            </RequestBody>
+            <ResponseBody status="200">
+              {
+                "turn_id": "uuid (= request_id)",
+                "status": "completed" | "failed",
+                "user_message": {
+                  "id": "uuid",
+                  "role": "user",
+                  "content": "string",
+                  "created_at": "ISO8601",
+                  "metadata": { "mode": "...", "img_path": "..." } | null
+                },
+                "assistant_message": {
+                  "id": "uuid",
+                  "role": "assistant",
+                  "content": "string",
+                  "created_at": "ISO8601",
+                  "token_count": int | null,
+                  "metadata": { "mode": "...", "sources": [...] } | null
+                } | null,
+                "error": {
+                  "code": "LLM_ERROR",
+                  "message": "..."
+                } | null
+              }
+            </ResponseBody>
+            <Notes>
+              - 幂等：同 request_id 且 payload_hash 一致时返回已有结果
+              - 失败补偿：LLM 错误时 status=failed，user_message 已写入，assistant_message=null
+              - 自动更新 session.updated_at
+              - 首条消息时自动更新 session.title（截断 query 前 100 字符）
+            </Notes>
+            <Errors>
+              <Error status="400">EMPTY_QUERY, MISSING_REQUEST_ID, INVALID_MODE, MULTIMODAL_INVALID</Error>
+              <Error status="404">SESSION_NOT_FOUND</Error>
+              <Error status="409">IDEMPOTENCY_CONFLICT</Error>
+              <Error status="500">LLM_ERROR, STORAGE_ERROR</Error>
+            </Errors>
+          </Endpoint>
+        </APIContract>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             P0.7  原有 WorkItems（保留）
+        ═══════════════════════════════════════════════════════════════════ -->
         <WorkItems>
           <Item>确认单用户假设：暂不引入 auth，但 DB/接口预留 `user_id` 字段（默认 NULL）。</Item>
-          <Item>确定 history 限制策略：服务端默认取最近 `N=20` 条消息，同时支持 `max_history_tokens`（默认例如 8000）用于动态截断；turn API 支持 `history_limit/max_history_tokens` 可选参数。</Item>
+          <Item>确定 history 限制策略：服务端默认取最近 `N=20` 条消息，同时支持 `max_history_tokens`（默认 8000）用于动态截断；turn API 支持 `history_limit/max_history_tokens` 可选参数。</Item>
           <Item>确定幂等性策略：turn API 要求前端提供 `request_id`（uuid），后端用 `chat_turns` 去重；定义冲突行为（同 request_id 但 payload 不一致 → 409）。</Item>
           <Item>确定分页策略：`GET /sessions` 与 `GET /messages` 均必须支持 `limit + cursor`（MVP 即支持），避免长列表全量加载。</Item>
-          <Item>确定会话标题策略：MVP 使用“第一条 user message 截断”生成 title；后续可用 LLM 生成摘要标题。</Item>
+          <Item>确定会话标题策略：MVP 使用"第一条 user message 截断"生成 title；后续可用 LLM 生成摘要标题。</Item>
           <Item>确定删除语义：建议从 MVP 起就软删除（`deleted_at`），避免误删不可恢复；可选提供 `hard=true` 才物理删除。</Item>
           <Item>确定 documents 快捷入口：Sidebar 主入口为 Library（最常用），其余 Upload/Graph 可作为子项。</Item>
         </WorkItems>
@@ -260,6 +714,9 @@
           <Criterion>冻结接口列表、字段命名、默认值与错误码（400/404/409/422/500，必要时 429）。</Criterion>
           <Criterion>冻结分页参数与 response shape（next_cursor 的格式）。</Criterion>
           <Criterion>冻结幂等性约定（request_id 的传递方式、冲突判定与返回）。</Criterion>
+          <Criterion>冻结 SQLite DDL（表结构、索引、PRAGMA）。</Criterion>
+          <Criterion>冻结错误响应 schema（统一 detail 结构）。</Criterion>
+          <Criterion>冻结默认值配置（history_limit、tokens、limits 等）。</Criterion>
         </ExitCriteria>
       </Plan>
     </PhaseBlock>
@@ -332,10 +789,10 @@
             <Rationale>提供面向前端的 chats/session API。</Rationale>
             <Method>
               - `POST /sessions`：创建会话（返回 id/title）  
-              - `GET /sessions?limit=&cursor_updated_at=&cursor_id=&q=`：按 updated_at 排序返回（分页 + 搜索 + 软删除过滤）  
+              - `GET /sessions?limit=&cursor=&q=`：按 updated_at 排序返回（分页 + 搜索 + 软删除过滤）  
               - `PATCH /sessions/{id}`：更新 title  
               - `DELETE /sessions/{id}`：默认软删除（写 deleted_at），可选 `?hard=true` 物理删除（级联）  
-              - `GET /sessions/{id}/messages?limit=&before_created_at=&before_id=`：消息分页（cursor-based；支持回放长对话）  
+              - `GET /sessions/{id}/messages?limit=&cursor=`：消息分页（cursor-based；支持回放长对话）  
               - `POST /sessions/{id}/turn`：要求 `request_id` 幂等；流程：幂等检查 → 写 user（短事务）→ 取 history（limit + token 截断）→ 调 rag_service（不持 DB 锁）→ 写 assistant + 更新 session.updated_at/title → 写 turn 状态（completed/failed）
             </Method>
           </Edit>
@@ -631,7 +1088,7 @@
 
   <Section id="claude_review">
     <Heading>6) Claude Code Review（协作反馈）</Heading>
-    <Callout>已完成 Claude Code 评审（SESSION_ID: 00df120e-6d0e-49ae-b153-5383d25ae401）。以下为要点摘录；详细原文可在 Claude 输出中回溯。</Callout>
+    <Callout>已完成 Claude Code 评审（SESSION_ID: 00df120e-6d0e-49ae-b153-5383d25ae401）；并在补齐 P0 契约冻结时协作使用 Claude Code（SESSION_ID: 0baa22d1-e392-4fe0-92b0-ff9600423e4a）。以下为要点摘录；详细原文可在 Claude 输出中回溯。</Callout>
     <Review>
       <Reviewer>claude-opus-4-5-20251101</Reviewer>
       <Status>completed</Status>
