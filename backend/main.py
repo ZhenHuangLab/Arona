@@ -38,7 +38,8 @@ from backend.services.rag_service import RAGService
 from backend.services.index_status_service import IndexStatusService
 from backend.services.background_indexer import BackgroundIndexer
 from backend.utils.torch_runtime import ensure_torch_cuda_libs
-from backend.routers import documents, query, health, graph, config
+from backend.routers import documents, query, health, graph, config, chat
+from backend.services.chat_store import ChatStore
 
 
 # Configure logging
@@ -73,10 +74,14 @@ async def lifespan(app: FastAPI):
     # Initialize index status service
     index_status_service = IndexStatusService()
 
+    # Initialize ChatStore for chat sessions/messages
+    chat_store = ChatStore(db_path=config.chat_db_path)
+
     # Store in app state
     app.state.config = config
     app.state.rag_service = rag_service
     app.state.index_status_service = index_status_service
+    app.state.chat_store = chat_store
     app.state.project_root = PROJECT_ROOT
     app.state.env_file_loaded = str(ENV_FILE_LOADED) if ENV_FILE_LOADED is not None else None
     app.state.config_reload_lock = asyncio.Lock()
@@ -148,6 +153,7 @@ app.include_router(documents.router, prefix="/api/documents", tags=["Documents"]
 app.include_router(query.router, prefix="/api/query", tags=["Query"])
 app.include_router(graph.router, prefix="/api/graph", tags=["Graph"])
 app.include_router(config.router, prefix="/api/config", tags=["Configuration"])
+app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 
 
 @app.get("/")

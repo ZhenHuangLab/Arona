@@ -624,6 +624,37 @@ class ChatStore:
         finally:
             conn.close()
 
+    def get_message(self, message_id: str) -> Optional[ChatMessage]:
+        """
+        Get a message by ID.
+
+        Args:
+            message_id: UUID of the message.
+
+        Returns:
+            ChatMessage if found, None otherwise.
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                """
+                SELECT id, session_id, role, content, token_count, user_id,
+                       created_at, metadata_json
+                FROM chat_messages
+                WHERE id = ?
+                """,
+                (message_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return self._row_to_message(row)
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get message {message_id}: {e}", exc_info=True)
+            raise
+        finally:
+            conn.close()
+
     def list_messages(
         self,
         session_id: str,
