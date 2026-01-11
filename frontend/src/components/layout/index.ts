@@ -4,7 +4,8 @@
  * Centralized export point for layout components
  */
 export { Layout } from './Layout';
+export { AppShell } from './AppShell';
+export { Sidebar } from './Sidebar';
 export { Header } from './Header';
 export { SettingsModal } from './SettingsModal';
 export { ModeSwitch } from './ModeSwitch';
-

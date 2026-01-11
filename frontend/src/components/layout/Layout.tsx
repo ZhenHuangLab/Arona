@@ -1,35 +1,29 @@
 import React from 'react';
 import { Outlet } from 'react-router-dom';
-import { Header } from './Header';
-import { ModeSwitch } from './ModeSwitch';
+import { AppShell } from './AppShell';
 import { SkipToContent } from '@/components/common';
 
 /**
  * Layout Component
  *
- * Main layout wrapper for all pages
+ * Main layout wrapper for all pages using the new AppShell layout.
  *
  * Structure:
  * - Skip to content link (accessibility)
- * - Header (navigation, settings)
- * - Mode switch (Chat/Documents navigation)
- * - Main content area (Outlet for routes)
+ * - AppShell (Sidebar + Main content area)
  *
  * Accessibility:
  * - Skip to content link for keyboard users
- * - Semantic HTML with <main> element
+ * - Semantic HTML with <main> element inside AppShell
  * - Proper heading hierarchy
  */
 export const Layout: React.FC = () => {
   return (
-    <div className="min-h-screen bg-background">
+    <>
       <SkipToContent />
-      <Header />
-      <ModeSwitch />
-      <main id="main-content" tabIndex={-1} className="focus:outline-none">
+      <AppShell>
         <Outlet />
-      </main>
-    </div>
+      </AppShell>
+    </>
   );
 };
-

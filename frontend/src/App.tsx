@@ -33,6 +33,7 @@ function LoadingFallback() {
  * Routes:
  * - / → Redirect to /chat
  * - /chat → Chat interface (lazy loaded)
+ * - /chat/:sessionId → Chat session (lazy loaded, uses same ChatView)
  * - /documents → Document management (lazy loaded, with nested routes)
  *   - /documents/upload → Upload documents
  *   - /documents/graph → Knowledge graph visualization
@@ -53,6 +54,7 @@ function App() {
             <Route path="/" element={<Layout />}>
               <Route index element={<Navigate to="/chat" replace />} />
               <Route path="chat" element={<ChatView />} />
+              <Route path="chat/:sessionId" element={<ChatView />} />
               <Route path="documents" element={<DocumentView />}>
                 <Route index element={<Navigate to="upload" replace />} />
                 <Route path="upload" element={<UploadView />} />
