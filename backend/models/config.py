@@ -12,6 +12,10 @@ class ConfigReloadRequest(BaseModel):
         None,
         description="Specific config files to reload. If None, reload all."
     )
+    apply: bool = Field(
+        True,
+        description="Whether to apply the reloaded configuration (rebuild BackendConfig + reinitialize services).",
+    )
     
     class Config:
         json_schema_extra = {
@@ -37,6 +41,87 @@ class ConfigReloadResponse(BaseModel):
                 "message": "Configuration reloaded successfully"
             }
         }
+
+
+class ModelConfigUpdate(BaseModel):
+    """Partial update for a ModelConfig-backed component (LLM/Embedding/Vision)."""
+
+    provider: Optional[str] = None
+    model_name: Optional[str] = None
+    api_key: Optional[str] = Field(
+        None,
+        description="Optional API key. If omitted, keep existing value.",
+    )
+    base_url: Optional[str] = None
+
+    # Common generation params
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+
+    # Embedding params
+    embedding_dim: Optional[int] = None
+
+    # Local GPU params
+    device: Optional[str] = None
+    dtype: Optional[str] = None
+    attn_implementation: Optional[str] = None
+    max_length: Optional[int] = None
+    default_instruction: Optional[str] = None
+    normalize: Optional[bool] = None
+    allow_image_urls: Optional[bool] = None
+    min_image_tokens: Optional[int] = None
+    max_image_tokens: Optional[int] = None
+
+
+class RerankerConfigUpdate(BaseModel):
+    """Partial update for reranker configuration."""
+
+    enabled: Optional[bool] = None
+    provider: Optional[str] = None  # local | local_gpu | api
+    model_name: Optional[str] = None
+    model_path: Optional[str] = None
+    device: Optional[str] = None
+    dtype: Optional[str] = None
+    attn_implementation: Optional[str] = None
+    batch_size: Optional[int] = None
+    max_length: Optional[int] = None
+    instruction: Optional[str] = None
+    system_prompt: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    min_image_tokens: Optional[int] = None
+    max_image_tokens: Optional[int] = None
+    allow_image_urls: Optional[bool] = None
+
+
+class ModelsUpdateRequest(BaseModel):
+    """Update model-related configuration and optionally apply it immediately."""
+
+    llm: Optional[ModelConfigUpdate] = None
+    embedding: Optional[ModelConfigUpdate] = None
+    vision: Optional[ModelConfigUpdate] = None
+    multimodal_embedding: Optional[ModelConfigUpdate] = None
+    reranker: Optional[RerankerConfigUpdate] = None
+
+    apply: bool = Field(
+        True,
+        description="Whether to apply immediately (reinitialize services).",
+    )
+    target_env_file: Optional[str] = Field(
+        None,
+        description="Optional env file to persist into (relative to project root). Defaults to .env if present, else .env.backend.",
+    )
+
+
+class ModelsUpdateResponse(BaseModel):
+    """Response for model configuration updates."""
+
+    status: str
+    message: str
+    applied: bool = False
+    env_file: Optional[str] = None
+    reloaded_components: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class CurrentConfigResponse(BaseModel):
@@ -123,4 +208,3 @@ class IndexingConfigUpdate(BaseModel):
                 "indexing_max_files_per_batch": 10
             }
         }
-

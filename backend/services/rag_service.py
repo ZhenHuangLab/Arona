@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -37,6 +38,10 @@ class RAGService:
         self.config = config
         self._rag_instance: Optional[RAGAnything] = None
         self._lock = asyncio.Lock()
+        self._active_ops_lock = asyncio.Lock()
+        self._idle_event = asyncio.Event()
+        self._idle_event.set()
+        self._active_ops = 0
 
         # Create embedding provider (save reference for shutdown)
         self.embedding_provider = ModelFactory.create_embedding_provider(config.embedding)
@@ -59,8 +64,11 @@ class RAGService:
 
         # Optional reranker
         self.reranker_func = None
+        self.reranker_provider = None
         if config.reranker:
             self.reranker_func = ModelFactory.create_reranker(config.reranker)
+            if self.reranker_func is not None:
+                self.reranker_provider = getattr(self.reranker_func, "_provider", None)
 
         logger.info("RAG service initialized with configuration:")
         logger.info(f"  LLM: {config.llm.provider}/{config.llm.model_name}")
@@ -74,6 +82,32 @@ class RAGService:
                 "  Multimodal Embedding: "
                 f"{config.multimodal_embedding.provider}/{config.multimodal_embedding.model_name}"
             )
+
+    @asynccontextmanager
+    async def _operation(self):
+        """Track in-flight operations to support safe hot-reload/shutdown."""
+        async with self._active_ops_lock:
+            self._active_ops += 1
+            self._idle_event.clear()
+        try:
+            yield
+        finally:
+            async with self._active_ops_lock:
+                self._active_ops -= 1
+                if self._active_ops <= 0:
+                    self._active_ops = 0
+                    self._idle_event.set()
+
+    async def wait_for_idle(self, timeout: Optional[float] = 10.0) -> bool:
+        """Wait until there are no in-flight operations."""
+        try:
+            if timeout is None:
+                await self._idle_event.wait()
+            else:
+                await asyncio.wait_for(self._idle_event.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
     
     async def get_rag_instance(self) -> RAGAnything:
         """
@@ -99,6 +133,8 @@ class RAGService:
                 enable_image_processing=self.config.enable_image_processing,
                 enable_table_processing=self.config.enable_table_processing,
                 enable_equation_processing=self.config.enable_equation_processing,
+                mineru_device=self.config.mineru_device,
+                mineru_vram=self.config.mineru_vram,
             )
             
             # Create RAGAnything instance
@@ -136,35 +172,36 @@ class RAGService:
         Returns:
             Processing result metadata
         """
-        rag = await self.get_rag_instance()
-        
-        if output_dir is None:
-            output_dir = Path(self.config.working_dir) / "parsed_output"
-        
-        logger.info(f"Processing document: {file_path}")
-        
-        try:
-            await rag.process_document_complete(
-                file_path=str(file_path),
-                output_dir=str(output_dir),
-                parse_method=parse_method,
-                **kwargs
-            )
-            
-            logger.info(f"Document processed successfully: {file_path}")
-            
-            return {
-                "status": "success",
-                "file_path": str(file_path),
-                "output_dir": str(output_dir),
-            }
-        except Exception as e:
-            logger.error(f"Failed to process document {file_path}: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "file_path": str(file_path),
-                "error": str(e),
-            }
+        async with self._operation():
+            rag = await self.get_rag_instance()
+
+            if output_dir is None:
+                output_dir = Path(self.config.working_dir) / "parsed_output"
+
+            logger.info(f"Processing document: {file_path}")
+
+            try:
+                await rag.process_document_complete(
+                    file_path=str(file_path),
+                    output_dir=str(output_dir),
+                    parse_method=parse_method,
+                    **kwargs,
+                )
+
+                logger.info(f"Document processed successfully: {file_path}")
+
+                return {
+                    "status": "success",
+                    "file_path": str(file_path),
+                    "output_dir": str(output_dir),
+                }
+            except Exception as e:
+                logger.error(f"Failed to process document {file_path}: {e}", exc_info=True)
+                return {
+                    "status": "error",
+                    "file_path": str(file_path),
+                    "error": str(e),
+                }
     
     async def query(
         self,
@@ -183,17 +220,18 @@ class RAGService:
         Returns:
             Query response text
         """
-        rag = await self.get_rag_instance()
-        
-        logger.info(f"Executing query: {query[:100]}... (mode={mode})")
-        
-        try:
-            result = await rag.aquery(query, mode=mode, **kwargs)
-            logger.info("Query executed successfully")
-            return result
-        except Exception as e:
-            logger.error(f"Query failed: {e}", exc_info=True)
-            raise
+        async with self._operation():
+            rag = await self.get_rag_instance()
+
+            logger.info(f"Executing query: {query[:100]}... (mode={mode})")
+
+            try:
+                result = await rag.aquery(query, mode=mode, **kwargs)
+                logger.info("Query executed successfully")
+                return result
+            except Exception as e:
+                logger.error(f"Query failed: {e}", exc_info=True)
+                raise
     
     async def query_with_multimodal(
         self,
@@ -214,22 +252,23 @@ class RAGService:
         Returns:
             Query response text
         """
-        rag = await self.get_rag_instance()
-        
-        logger.info(f"Executing multimodal query: {query[:100]}... (mode={mode})")
-        
-        try:
-            result = await rag.aquery_with_multimodal(
-                query=query,
-                multimodal_content=multimodal_content,
-                mode=mode,
-                **kwargs
-            )
-            logger.info("Multimodal query executed successfully")
-            return result
-        except Exception as e:
-            logger.error(f"Multimodal query failed: {e}", exc_info=True)
-            raise
+        async with self._operation():
+            rag = await self.get_rag_instance()
+
+            logger.info(f"Executing multimodal query: {query[:100]}... (mode={mode})")
+
+            try:
+                result = await rag.aquery_with_multimodal(
+                    query=query,
+                    multimodal_content=multimodal_content,
+                    mode=mode,
+                    **kwargs,
+                )
+                logger.info("Multimodal query executed successfully")
+                return result
+            except Exception as e:
+                logger.error(f"Multimodal query failed: {e}", exc_info=True)
+                raise
     
     async def get_status(self) -> Dict[str, Any]:
         """
@@ -283,6 +322,9 @@ class RAGService:
         """
         logger.info("Shutting down RAG service...")
 
+        # Wait briefly for in-flight operations to finish (best-effort).
+        await self.wait_for_idle(timeout=5.0)
+
         # Shutdown embedding provider if it has a shutdown method
         if hasattr(self.embedding_provider, 'shutdown'):
             await self.embedding_provider.shutdown()
@@ -290,5 +332,11 @@ class RAGService:
         # Shutdown multimodal embedding provider if present
         if self.multimodal_embedding_provider and hasattr(self.multimodal_embedding_provider, "shutdown"):
             await self.multimodal_embedding_provider.shutdown()
+
+        # Shutdown reranker provider if present
+        if self.reranker_provider is not None and hasattr(self.reranker_provider, "shutdown"):
+            await self.reranker_provider.shutdown()
+
+        self._rag_instance = None
 
         logger.info("RAG service shutdown complete")

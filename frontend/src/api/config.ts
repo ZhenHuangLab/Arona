@@ -3,7 +3,7 @@
  */
 
 import apiClient from './client';
-import type { ConfigResponse, ConfigReloadRequest, ConfigReloadResponse } from '../types';
+import type { ConfigResponse, ConfigReloadRequest, ConfigReloadResponse, ModelsUpdateRequest, ModelsUpdateResponse } from '../types';
 import type { IndexingConfig, IndexingConfigUpdate, TriggerIndexResponse, ReindexRequest, ReindexResponse } from '../types/config';
 
 /**
@@ -19,6 +19,14 @@ export const getConfig = async (): Promise<ConfigResponse> => {
  */
 export const reloadConfig = async (request?: ConfigReloadRequest): Promise<ConfigReloadResponse> => {
   const response = await apiClient.post<ConfigReloadResponse>('/api/config/reload', request || {});
+  return response.data;
+};
+
+/**
+ * Update model configuration (persist to env file) and optionally apply immediately.
+ */
+export const updateModelsConfig = async (request: ModelsUpdateRequest): Promise<ModelsUpdateResponse> => {
+  const response = await apiClient.put<ModelsUpdateResponse>('/api/config/models', request);
   return response.data;
 };
 
@@ -89,9 +97,9 @@ export const reindexDocuments = async (request: ReindexRequest): Promise<Reindex
 export const configApi = {
   getConfig,
   reloadConfig,
+  updateModelsConfig,
   getIndexingConfig,
   updateIndexingConfig,
   triggerIndex,
   reindexDocuments,
 };
-

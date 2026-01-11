@@ -609,6 +609,7 @@ class MineruParser(Parser):
         formula: bool = True,
         table: bool = True,
         device: Optional[str] = None,
+        vram: Optional[int] = None,
         source: Optional[str] = None,
         vlm_url: Optional[str] = None,
     ) -> None:
@@ -626,6 +627,7 @@ class MineruParser(Parser):
             formula: Enable formula parsing
             table: Enable table parsing
             device: Inference device
+            vram: Upper limit of GPU memory (MiB) occupied by a single process
             source: Model source (huggingface, modelscope, local)
             vlm_url: When the backend is `vlm-sglang-client`, you need to specify the server_url
         """
@@ -661,6 +663,8 @@ class MineruParser(Parser):
             cmd.extend(["-t", "false"])
         if device:
             cmd.extend(["-d", device])
+        if vram is not None:
+            cmd.extend(["--vram", str(vram)])
         if vlm_url:
             cmd.extend(["-u", vlm_url])
 
@@ -949,14 +953,23 @@ class MineruParser(Parser):
             except MineruExecutionError as e:
                 # Check if error is GPU-related (kernel image not available)
                 error_msg = str(e).lower()
-                if "no kernel image is available" in error_msg or "cuda error" in error_msg:
+                is_cuda_oom = ("cuda" in error_msg and "out of memory" in error_msg) or (
+                    "outofmemoryerror" in error_msg
+                )
+                if (
+                    "no kernel image is available" in error_msg
+                    or "cuda error" in error_msg
+                    or is_cuda_oom
+                ):
                     logging.warning(
-                        f"[MinerU] GPU error detected (likely architecture incompatibility). "
+                        f"[MinerU] GPU error detected (OOM or CUDA runtime issue). "
                         f"Falling back to CPU mode. Original error: {str(e)[:200]}"
                     )
                     # Retry with CPU
                     kwargs_cpu = kwargs.copy()
                     kwargs_cpu["device"] = "cpu"
+                    # VRAM limit is GPU-specific; drop it for CPU fallback.
+                    kwargs_cpu.pop("vram", None)
                     self._run_mineru_command(
                         input_path=pdf_path,
                         output_dir=base_output_dir,

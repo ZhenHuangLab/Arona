@@ -25,11 +25,27 @@ dependencies = [
     "huggingface_hub",
     "lightrag-hku",
     "mineru[core]",
-    # Qwen3 / GME compatibility (Task T7 local GPU embedding/reranking)
-    # Qwen3 models require transformers>=4.51.0; we pin to 4.51.3 to match the validated environment.
-    "transformers==4.51.3",
+    # Default local GPU stack: Qwen3-VL embedding + reranking
+    # Note: For GTX 1080 Ti (Pascal, sm_61), prefer CUDA 11.8 wheels.
+    "torch==2.7.1+cu118",
+    "torchvision==0.22.1+cu118",
+    "triton==3.3.1; platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "transformers>=4.57.0",
+    "qwen-vl-utils>=0.0.14",
+    "sentence-transformers>=2.3.0",
+    "accelerate>=0.25.0",
+    "safetensors>=0.4.0",
+    "numpy<2",
+    "pillow>=10.0.0",
     "tqdm",
     "uvicorn>=0.37.0",
+    "python-dotenv",
+    "python-multipart>=0.0.6",
+    "pyyaml>=6.0",
+    "aiofiles>=23.0.0",
+    "requests>=2.31.0",
+    "httpx>=0.25.0",
+    "python-json-logger>=2.0.0",
 ]
 
 [project.optional-dependencies]

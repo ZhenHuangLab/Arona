@@ -25,6 +25,7 @@ export interface ConfigResponse {
     host: string;
     port: number;
     cors_origins: string[];
+    env_file_loaded?: string | null;
   };
   models: {
     llm: ModelInfo;
@@ -51,6 +52,15 @@ export interface ModelInfo {
   temperature?: number;
   max_tokens?: number;
   embedding_dim?: number;
+  device?: string;
+  dtype?: string;
+  attn_implementation?: string;
+  max_length?: number;
+  default_instruction?: string;
+  normalize?: boolean;
+  allow_image_urls?: boolean;
+  min_image_tokens?: number;
+  max_image_tokens?: number;
 }
 
 export interface RerankerInfo {
@@ -58,10 +68,20 @@ export interface RerankerInfo {
   provider: string;
   model_name?: string;
   model_path?: string;
+  device?: string;
+  dtype?: string;
+  attn_implementation?: string;
+  batch_size?: number;
+  max_length?: number;
+  min_image_tokens?: number;
+  max_image_tokens?: number;
+  allow_image_urls?: boolean;
+  base_url?: string;
 }
 
 export interface ConfigReloadRequest {
   config_files?: string[];
+  apply?: boolean;
 }
 
 export interface ConfigReloadResponse {
@@ -69,6 +89,67 @@ export interface ConfigReloadResponse {
   reloaded_files: string[];
   errors: Record<string, string>;
   message: string;
+}
+
+// ============================================================================
+// Editable Model Config (UI → Backend)
+// ============================================================================
+
+export interface ModelConfigUpdate {
+  provider?: string;
+  model_name?: string;
+  api_key?: string;
+  base_url?: string;
+  temperature?: number;
+  max_tokens?: number;
+  embedding_dim?: number;
+  device?: string;
+  dtype?: string;
+  attn_implementation?: string;
+  max_length?: number;
+  default_instruction?: string;
+  normalize?: boolean;
+  allow_image_urls?: boolean;
+  min_image_tokens?: number;
+  max_image_tokens?: number;
+}
+
+export interface RerankerConfigUpdate {
+  enabled?: boolean;
+  provider?: string;
+  model_name?: string;
+  model_path?: string;
+  device?: string;
+  dtype?: string;
+  attn_implementation?: string;
+  batch_size?: number;
+  max_length?: number;
+  instruction?: string;
+  system_prompt?: string;
+  api_key?: string;
+  base_url?: string;
+  min_image_tokens?: number;
+  max_image_tokens?: number;
+  allow_image_urls?: boolean;
+}
+
+export interface ModelsUpdateRequest {
+  llm?: ModelConfigUpdate;
+  embedding?: ModelConfigUpdate;
+  vision?: ModelConfigUpdate;
+  multimodal_embedding?: ModelConfigUpdate;
+  reranker?: RerankerConfigUpdate;
+  apply?: boolean;
+  target_env_file?: string;
+}
+
+export interface ModelsUpdateResponse {
+  status: string;
+  message: string;
+  applied: boolean;
+  env_file?: string;
+  reloaded_components: string[];
+  warnings: string[];
 }
 
 // ============================================================================

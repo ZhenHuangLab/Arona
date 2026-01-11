@@ -73,6 +73,15 @@ document_processing:
   # Environment variable: ENABLE_EQUATION_PROCESSING
   enable_equation_processing: true
 
+  # MinerU device selection (optional)
+  # Examples: cpu | cuda | cuda:0 | cuda:1
+  # Environment variable: MINERU_DEVICE
+  mineru_device: "cuda:1"
+
+  # Optional: Upper limit of GPU memory (MiB) for a single MinerU process (pipeline backend)
+  # Environment variable: MINERU_VRAM
+  # mineru_vram: 9000
+
 # ==============================================================================
 # RAG Storage Configuration
 # ==============================================================================

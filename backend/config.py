@@ -101,6 +101,13 @@ class ModelConfig:
         api_key = os.getenv(f"{prefix}_API_KEY")
         base_url = os.getenv(f"{prefix}_BASE_URL")
 
+        if model_name is not None:
+            model_name = model_name.strip()
+        if api_key == "":
+            api_key = None
+        if base_url == "":
+            base_url = None
+
         if not model_name:
             raise ValueError(f"Missing required env var: {prefix}_MODEL_NAME")
 
@@ -229,6 +236,9 @@ class RerankerConfig:
     attn_implementation: str = "sdpa"
     batch_size: int = 16
     max_length: int = 8192
+    min_image_tokens: int = 4
+    max_image_tokens: int = 1280
+    allow_image_urls: bool = False
     instruction: Optional[str] = None
     system_prompt: Optional[str] = None
 
@@ -239,7 +249,7 @@ class RerankerConfig:
     @classmethod
     def from_env(cls) -> RerankerConfig:
         """Create RerankerConfig from environment variables."""
-        enabled = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
+        enabled = os.getenv("RERANKER_ENABLED", "false").lower() == "true"
         provider = os.getenv("RERANKER_PROVIDER", "local")
         # Backward/forward compat: treat local_gpu as local (device decides CPU/GPU).
         if provider == "local_gpu":
@@ -251,12 +261,24 @@ class RerankerConfig:
         )
 
         if provider == "local":
-            config.model_name = os.getenv("RERANKER_MODEL_NAME")
-            config.model_path = os.getenv("RERANKER_MODEL_PATH")
-            config.device = os.getenv("RERANKER_DEVICE")
+            config.model_name = os.getenv("RERANKER_MODEL_NAME") or None
+            config.model_path = os.getenv("RERANKER_MODEL_PATH") or None
+            config.device = os.getenv("RERANKER_DEVICE") or None
 
-            config.instruction = os.getenv("RERANKER_INSTRUCTION")
-            config.system_prompt = os.getenv("RERANKER_SYSTEM_PROMPT")
+            config.instruction = os.getenv("RERANKER_INSTRUCTION") or None
+            config.system_prompt = os.getenv("RERANKER_SYSTEM_PROMPT") or None
+
+            min_image_tokens = os.getenv("RERANKER_MIN_IMAGE_TOKENS")
+            if min_image_tokens:
+                config.min_image_tokens = int(min_image_tokens)
+
+            max_image_tokens = os.getenv("RERANKER_MAX_IMAGE_TOKENS")
+            if max_image_tokens:
+                config.max_image_tokens = int(max_image_tokens)
+
+            allow_image_urls = os.getenv("RERANKER_ALLOW_IMAGE_URLS")
+            if allow_image_urls:
+                config.allow_image_urls = allow_image_urls.lower() == "true"
 
             dtype = os.getenv("RERANKER_DTYPE")
             if dtype:
@@ -274,9 +296,9 @@ class RerankerConfig:
             if max_length:
                 config.max_length = int(max_length)
         else:
-            config.api_key = os.getenv("RERANKER_API_KEY")
-            config.base_url = os.getenv("RERANKER_BASE_URL")
-            config.model_name = os.getenv("RERANKER_MODEL_NAME")
+            config.api_key = os.getenv("RERANKER_API_KEY") or None
+            config.base_url = os.getenv("RERANKER_BASE_URL") or None
+            config.model_name = os.getenv("RERANKER_MODEL_NAME") or None
 
         return config
 
@@ -304,6 +326,7 @@ class BackendConfig:
     enable_table_processing: bool = True
     enable_equation_processing: bool = True
     mineru_device: Optional[str] = None  # Device for MinerU (cpu, cuda, cuda:0)
+    mineru_vram: Optional[int] = None  # VRAM limit (MiB) for MinerU pipeline backend
 
     # Background indexing configuration
     auto_indexing_enabled: bool = True
@@ -330,7 +353,7 @@ class BackendConfig:
         
         # Optional reranker
         reranker = None
-        if os.getenv("RERANKER_ENABLED", "true").lower() == "true":
+        if os.getenv("RERANKER_ENABLED", "false").lower() == "true":
             reranker = RerankerConfig.from_env()
 
         # Optional multimodal embedding model (separate from text embedding)
@@ -350,6 +373,13 @@ class BackendConfig:
         enable_table = os.getenv("ENABLE_TABLE_PROCESSING", "true").lower() == "true"
         enable_equation = os.getenv("ENABLE_EQUATION_PROCESSING", "true").lower() == "true"
         mineru_device = os.getenv("MINERU_DEVICE")  # None means auto-detect
+        mineru_vram_raw = os.getenv("MINERU_VRAM")
+        mineru_vram: Optional[int] = None
+        if mineru_vram_raw:
+            try:
+                mineru_vram = int(mineru_vram_raw)
+            except ValueError:
+                raise ValueError("MINERU_VRAM must be an integer (MiB)") from None
 
         # Background indexing settings
         auto_indexing_enabled = os.getenv("AUTO_INDEXING_ENABLED", "true").lower() == "true"
@@ -374,6 +404,7 @@ class BackendConfig:
             enable_table_processing=enable_table,
             enable_equation_processing=enable_equation,
             mineru_device=mineru_device,
+            mineru_vram=mineru_vram,
             auto_indexing_enabled=auto_indexing_enabled,
             indexing_scan_interval=indexing_scan_interval,
             indexing_max_files_per_batch=indexing_max_files_per_batch,
@@ -426,11 +457,25 @@ class BackendConfig:
         reranker = None
         if "reranker" in data and data["reranker"].get("enabled"):
             reranker_data = data["reranker"]
+            use_fp16 = bool(reranker_data.get("use_fp16", False))
+            dtype = reranker_data.get("dtype") or ("float16" if use_fp16 else "float32")
             reranker = RerankerConfig(
                 enabled=True,
                 provider=reranker_data.get("provider", "local"),
+                model_name=reranker_data.get("model_name"),
                 model_path=reranker_data.get("model_path"),
-                use_fp16=reranker_data.get("use_fp16", False),
+                device=reranker_data.get("device"),
+                dtype=dtype,
+                attn_implementation=reranker_data.get("attn_implementation", "sdpa"),
+                batch_size=int(reranker_data.get("batch_size", 16)),
+                max_length=int(reranker_data.get("max_length", 8192)),
+                min_image_tokens=int(reranker_data.get("min_image_tokens", 4)),
+                max_image_tokens=int(reranker_data.get("max_image_tokens", 1280)),
+                allow_image_urls=bool(reranker_data.get("allow_image_urls", False)),
+                instruction=reranker_data.get("instruction"),
+                system_prompt=reranker_data.get("system_prompt"),
+                api_key=reranker_data.get("api_key"),
+                base_url=reranker_data.get("base_url"),
             )
         
         return cls(
@@ -444,4 +489,6 @@ class BackendConfig:
             enable_image_processing=data.get("enable_image_processing", True),
             enable_table_processing=data.get("enable_table_processing", True),
             enable_equation_processing=data.get("enable_equation_processing", True),
+            mineru_device=data.get("mineru_device"),
+            mineru_vram=data.get("mineru_vram"),
         )

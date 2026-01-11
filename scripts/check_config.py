@@ -13,14 +13,20 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Load environment from .env.backend
+# Load environment from .env (preferred) or .env.backend (legacy)
 from dotenv import load_dotenv
-env_file = PROJECT_ROOT / ".env.backend"
-if env_file.exists():
+env_file = None
+for env_name in (".env", ".env.backend"):
+    candidate = PROJECT_ROOT / env_name
+    if candidate.exists():
+        env_file = candidate
+        break
+
+if env_file is not None:
     load_dotenv(dotenv_path=env_file, override=False)
     print(f"✓ Loaded environment from {env_file}\n")
 else:
-    print(f"⚠ Warning: {env_file} not found\n")
+    print("⚠ Warning: No .env or .env.backend found; using current environment\n")
 
 from backend.config import BackendConfig
 
@@ -71,18 +77,22 @@ def check_config():
     # Reranker Configuration
     print_section("Reranker Configuration")
     if config.reranker and config.reranker.enabled:
-        print(f"Enabled:     Yes")
+        print("Enabled:     Yes")
         print(f"Provider:    {config.reranker.provider}")
-        
+
         if config.reranker.provider == "api":
-            print(f"Model:       {config.reranker.model_name}")
+            print(f"Model:       {config.reranker.model_name or 'Not set'}")
             print(f"Base URL:    {config.reranker.base_url or 'Auto-detected'}")
             print(f"API Key:     {'Set' if config.reranker.api_key else 'Not set'}")
             print(f"Batch Size:  {config.reranker.batch_size}")
-        else:  # local
+        else:
+            # local CPU or local GPU (device=cuda:*)
+            print(f"Model:       {config.reranker.model_name or 'Not set'}")
             print(f"Model Path:  {config.reranker.model_path or 'Not set'}")
-            print(f"Use FP16:    {config.reranker.use_fp16}")
+            print(f"Device:      {config.reranker.device or 'cpu'}")
+            print(f"DType:       {config.reranker.dtype}")
             print(f"Batch Size:  {config.reranker.batch_size}")
+            print(f"Max Length:  {config.reranker.max_length}")
     else:
         print("Disabled")
     
@@ -149,7 +159,13 @@ def check_config():
     if not config.embedding.model_name:
         issues.append("Embedding model name not set")
     
-    if not config.embedding.embedding_dim:
+    # Embedding dim is required for API-based embedding. Local GPU providers may omit it.
+    is_local_gpu_embedding = config.embedding.provider.value in ["local_gpu"] or (
+        config.embedding.provider.value == "local"
+        and config.embedding.base_url is None
+        and str(config.embedding.extra_params.get("device", "")).startswith("cuda")
+    )
+    if not is_local_gpu_embedding and not config.embedding.embedding_dim:
         issues.append("Embedding dimension not set")
     
     # Check API keys for API providers
@@ -167,9 +183,14 @@ def check_config():
                 warnings.append("Reranker API key not set")
             if not config.reranker.model_name:
                 issues.append("Reranker model name not set")
-        else:  # local
-            if not config.reranker.model_path:
-                issues.append("Reranker model path not set")
+        else:
+            is_local_gpu_reranker = bool(config.reranker.device and config.reranker.device.startswith("cuda"))
+            if is_local_gpu_reranker:
+                if not config.reranker.model_name:
+                    issues.append("Local GPU reranker model name not set")
+            else:
+                if not config.reranker.model_path:
+                    issues.append("Local reranker model path not set")
     
     # Check parser
     if config.parser not in ['mineru', 'docling']:
@@ -217,4 +238,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -66,6 +66,16 @@ class RAGAnythingConfig:
     )
     """Enable equation content processing."""
 
+    # MinerU Configuration
+    # ---
+    mineru_device: str | None = field(
+        default=(get_env_value("MINERU_DEVICE", "", str) or None)
+    )
+    """Device for MinerU model inference (e.g., 'cpu', 'cuda', 'cuda:1')."""
+
+    mineru_vram: int | None = field(default=(get_env_value("MINERU_VRAM", 0, int) or None))
+    """Upper limit of GPU memory (MiB) for a single MinerU process (pipeline backend)."""
+
     # Batch Processing Configuration
     # ---
     max_concurrent_files: int = field(
@@ -218,6 +228,10 @@ class RAGAnythingConfig:
                 stacklevel=2,
             )
             self.ollama_max_retries = 0
+
+        if self.mineru_vram is not None and self.mineru_vram <= 0:
+            # Treat zero/negative as "unset"
+            self.mineru_vram = None
 
         # Note: Reranker validation is now handled by backend/model_factory.py
         # The backend passes rerank_model_func directly to RAGAnything, so we don't

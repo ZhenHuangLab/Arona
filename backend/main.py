@@ -7,7 +7,6 @@ FastAPI application providing REST API for RAG operations.
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import logging
 import os
 import sys
@@ -34,10 +33,11 @@ for env_name in (".env", ".env.backend"):
         ENV_FILE_LOADED = env_file
         break
 
-from backend.config import BackendConfig, ProviderType
+from backend.config import BackendConfig
 from backend.services.rag_service import RAGService
 from backend.services.index_status_service import IndexStatusService
 from backend.services.background_indexer import BackgroundIndexer
+from backend.utils.torch_runtime import ensure_torch_cuda_libs
 from backend.routers import documents, query, health, graph, config
 
 
@@ -51,71 +51,6 @@ if ENV_FILE_LOADED is not None:
     logger.info(f"Loaded environment from {ENV_FILE_LOADED}")
 
 
-def _torch_lib_dir() -> Path | None:
-    """
-    Best-effort discovery of the installed torch package's `lib/` directory.
-
-    This does not import `torch` (which may fail if CUDA libraries are misconfigured).
-    """
-
-    try:
-        spec = importlib.util.find_spec("torch")
-    except Exception:
-        return None
-
-    if spec is None or not spec.submodule_search_locations:
-        return None
-
-    torch_pkg_dir = Path(next(iter(spec.submodule_search_locations)))
-    lib_dir = torch_pkg_dir / "lib"
-    if not lib_dir.is_dir():
-        return None
-    return lib_dir
-
-
-def _prepend_to_ld_library_path(dir_path: Path) -> None:
-    """
-    Prepend a directory to LD_LIBRARY_PATH (deduplicated).
-
-    Note: this affects dynamic library resolution for future dlopen() calls in this
-    process (e.g. importing `torch` later). It does not change already-loaded libs.
-    """
-
-    lib_dir = str(dir_path)
-    current = os.environ.get("LD_LIBRARY_PATH", "")
-    parts = [p for p in current.split(os.pathsep) if p]
-    if parts and parts[0] == lib_dir:
-        return
-    parts = [p for p in parts if p != lib_dir]
-    os.environ["LD_LIBRARY_PATH"] = os.pathsep.join([lib_dir, *parts]) if parts else lib_dir
-
-
-def _needs_local_gpu_torch(config: BackendConfig) -> bool:
-    """Return True if configuration selects any local GPU provider that imports torch."""
-
-    def _is_local_gpu_model(model) -> bool:
-        device = getattr(model, "extra_params", {}).get("device")
-        is_cuda_device = isinstance(device, str) and device.startswith("cuda")
-        return bool(
-            model.provider == ProviderType.LOCAL_GPU
-            or (model.provider == ProviderType.LOCAL and model.base_url is None and is_cuda_device)
-        )
-
-    if _is_local_gpu_model(config.embedding):
-        return True
-
-    if getattr(config, "multimodal_embedding", None) and _is_local_gpu_model(config.multimodal_embedding):
-        return True
-
-    reranker = config.reranker
-    if reranker and reranker.enabled:
-        is_cuda_device = isinstance(reranker.device, str) and reranker.device.startswith("cuda")
-        if reranker.provider in {"local", "local_gpu"} and is_cuda_device:
-            return True
-
-    return False
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
@@ -126,19 +61,7 @@ async def lifespan(app: FastAPI):
     config = BackendConfig.from_env()
 
     # If local GPU providers are enabled, ensure torch's bundled CUDA libs take precedence.
-    # This avoids import-time errors like:
-    #   libtorch_cuda.so: undefined symbol: cublasSetWorkspace_v2
-    # caused by an old CUDA toolkit path earlier in LD_LIBRARY_PATH.
-    if _needs_local_gpu_torch(config):
-        lib_dir = _torch_lib_dir()
-        if lib_dir is not None:
-            _prepend_to_ld_library_path(lib_dir)
-            logger.info(f"Prepended torch CUDA libs to LD_LIBRARY_PATH: {lib_dir}")
-        else:
-            logger.warning(
-                "Local GPU provider is configured but torch `lib/` directory was not found; "
-                "torch import may fail if CUDA runtime libraries are misconfigured."
-            )
+    ensure_torch_cuda_libs(config)
 
     # Create upload directory
     Path(config.upload_dir).mkdir(parents=True, exist_ok=True)
@@ -154,6 +77,9 @@ async def lifespan(app: FastAPI):
     app.state.config = config
     app.state.rag_service = rag_service
     app.state.index_status_service = index_status_service
+    app.state.project_root = PROJECT_ROOT
+    app.state.env_file_loaded = str(ENV_FILE_LOADED) if ENV_FILE_LOADED is not None else None
+    app.state.config_reload_lock = asyncio.Lock()
 
     # Start background indexer if enabled
     background_task: Optional[asyncio.Task] = None

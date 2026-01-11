@@ -13,7 +13,12 @@ from typing import Callable, Optional, List, Dict, Any
 from lightrag.utils import EmbeddingFunc
 
 from backend.config import ModelConfig, ProviderType, ModelType, RerankerConfig
-from backend.providers.base import BaseLLMProvider, BaseVisionProvider, BaseEmbeddingProvider
+from backend.providers.base import (
+    BaseLLMProvider,
+    BaseVisionProvider,
+    BaseEmbeddingProvider,
+    BaseRerankerProvider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -153,16 +158,8 @@ class ModelFactory:
             raise ValueError(f"Unsupported provider: {config.provider}")
     
     @staticmethod
-    def create_reranker(config: RerankerConfig) -> Optional[Callable]:
-        """
-        Create reranker from configuration.
-
-        Args:
-            config: Reranker configuration
-
-        Returns:
-            Reranker function or None if disabled
-        """
+    def create_reranker_provider(config: RerankerConfig) -> Optional[BaseRerankerProvider]:
+        """Create a BaseRerankerProvider from configuration."""
         if not config or not config.enabled:
             return None
 
@@ -171,21 +168,23 @@ class ModelFactory:
             is_local_gpu = config.device and config.device.startswith("cuda")
 
             if is_local_gpu:
-                # Use LocalRerankerProvider for GPU-based reranking
                 if not config.model_name:
                     raise ValueError("Local GPU reranker requires model_name")
 
                 from backend.config import ModelConfig, ModelType
 
-                # Create ModelConfig for LocalRerankerProvider
                 extra_params: Dict[str, Any] = {
                     "device": config.device,
                     "dtype": config.dtype,
                     "attn_implementation": config.attn_implementation,
-                    "model_path": config.model_path,
                     "batch_size": config.batch_size,
                     "max_length": config.max_length,
+                    "min_image_tokens": config.min_image_tokens,
+                    "max_image_tokens": config.max_image_tokens,
+                    "allow_image_urls": config.allow_image_urls,
                 }
+                if config.model_path:
+                    extra_params["model_path"] = config.model_path
                 if config.instruction:
                     extra_params["instruction"] = config.instruction
                 if config.system_prompt:
@@ -202,62 +201,45 @@ class ModelFactory:
                 if "qwen3-vl-reranker" in model_name_lower:
                     from backend.providers.qwen3_vl import Qwen3VLRerankerProvider
 
-                    reranker = Qwen3VLRerankerProvider(model_config)
-                else:
-                    try:
-                        from backend.providers.local_embedding import LocalRerankerProvider
-                    except ImportError as e:
-                        raise ImportError(
-                            "Failed to import local GPU reranker provider. "
-                            "This usually means your PyTorch/CUDA runtime is not correctly installed. "
-                            "If you don't need local GPU reranking, set RERANKER_PROVIDER=api or disable reranking. "
-                            "Original error: "
-                            + str(e)
-                        ) from e
+                    return Qwen3VLRerankerProvider(model_config)
 
-                    reranker = LocalRerankerProvider(model_config)
+                try:
+                    from backend.providers.local_embedding import LocalRerankerProvider
+                except ImportError as e:
+                    raise ImportError(
+                        "Failed to import local GPU reranker provider. "
+                        "This usually means your PyTorch/CUDA runtime is not correctly installed. "
+                        "If you don't need local GPU reranking, set RERANKER_PROVIDER=api or disable reranking. "
+                        "Original error: "
+                        + str(e)
+                    ) from e
 
-                # Return async wrapper
-                async def rerank_func(query: str, documents: List[str], **kwargs) -> List[Dict[str, float]]:
-                    scores = await reranker.rerank(query, documents, **kwargs)
-                    return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
+                return LocalRerankerProvider(model_config)
 
-                return rerank_func
-            else:
-                # Use FlagEmbedding reranker (CPU-based)
-                if not config.model_path:
-                    raise ValueError("Local reranker requires model_path")
+            # CPU reranker (FlagEmbedding)
+            if not config.model_path:
+                raise ValueError("Local reranker requires model_path")
 
-                from raganything.rerankers.flagembedding import FlagEmbeddingReranker
+            from raganything.rerankers.flagembedding import FlagEmbeddingReranker
+            from backend.providers.reranker_wrappers import FlagEmbeddingRerankerProvider
 
-                reranker = FlagEmbeddingReranker(
-                    model_path=config.model_path,
-                    use_fp16=config.dtype == "float16",
-                    batch_size=config.batch_size,
-                )
+            reranker = FlagEmbeddingReranker(
+                model_path=config.model_path,
+                use_fp16=config.dtype == "float16",
+                batch_size=config.batch_size,
+            )
+            return FlagEmbeddingRerankerProvider(reranker)
 
-                # Return async wrapper
-                async def rerank_func(query: str, documents: List[str], **kwargs) -> List[Dict[str, float]]:
-                    # FlagEmbedding rerankers don't currently consume extra kwargs.
-                    # Keep the signature flexible for future LightRAG extensions.
-                    _ = kwargs
-                    scores = await reranker.score_async(query, documents)
-                    return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
-
-                return rerank_func
-
-        elif config.provider == "api":
-            # Use API-based reranker (Jina, Cohere, Voyage, etc.)
+        if config.provider == "api":
             if not config.model_name:
                 raise ValueError("API reranker requires model_name")
             if not config.api_key:
                 raise ValueError("API reranker requires api_key")
 
             from raganything.rerankers.api_reranker import APIReranker
+            from backend.providers.reranker_wrappers import APIRerankerProvider
 
-            # Determine provider from base_url or model_name
             provider = ModelFactory._detect_reranker_provider(config)
-
             reranker = APIReranker(
                 provider=provider,
                 model_name=config.model_name,
@@ -265,18 +247,29 @@ class ModelFactory:
                 base_url=config.base_url,
                 batch_size=config.batch_size,
             )
+            return APIRerankerProvider(reranker)
 
-            # Return async wrapper
-            async def rerank_func(query: str, documents: List[str], **kwargs) -> List[Dict[str, float]]:
-                # API rerankers use a fixed contract today.
-                _ = kwargs
-                scores = await reranker.score_async(query, documents)
-                return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
+        raise ValueError(f"Unknown reranker provider: {config.provider}")
 
-            return rerank_func
+    @staticmethod
+    def create_reranker(config: RerankerConfig) -> Optional[Callable]:
+        """
+        Create a RAGAnything-compatible reranker function from configuration.
 
-        else:
-            raise ValueError(f"Unknown reranker provider: {config.provider}")
+        Note: This returns the LightRAG/RAGAnything contract (list of dicts with scores),
+        not raw float scores.
+        """
+        provider = ModelFactory.create_reranker_provider(config)
+        if provider is None:
+            return None
+
+        async def rerank_func(query: str, documents: List[str], **kwargs) -> List[Dict[str, float]]:
+            scores = await provider.rerank(query, documents, **kwargs)
+            return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
+
+        # Keep a reference for lifecycle management (optional; used by RAGService).
+        setattr(rerank_func, "_provider", provider)
+        return rerank_func
     
     @staticmethod
     def create_llm_func(config: ModelConfig) -> Callable:

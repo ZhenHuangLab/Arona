@@ -25,6 +25,9 @@ uv sync
 pip install -r requirements-backend.txt
 ```
 
+> 注：默认配置使用本地 Qwen3-VL Embedding/Reranker（见 `env.example`）。
+> 对于 GTX 1080 Ti（Pascal），推荐使用 CUDA 11.8 的 PyTorch wheels；具体安装方式见 `requirements-backend.txt` 的注释。
+
 前端：
 
 ```bash
@@ -44,6 +47,9 @@ cp env.example .env
 然后编辑 `.env`，填入你的 `LLM_*` / `EMBEDDING_*` 等关键配置。
 
 > 兼容旧方案：后端仍支持 `.env.backend`（见 `env.backend.example`）。
+
+> 说明：当前 `env.example` 的默认 embedding/reranker 预设为本地 Qwen3-VL（便于离线/本地部署）。
+> 如果你希望使用 OpenAI/自建 OpenAI-compatible API，请把 `EMBEDDING_PROVIDER` / `RERANKER_PROVIDER` 改回 `openai/custom` 等并填写对应 API Key。
 
 ### 3) 一键启动
 

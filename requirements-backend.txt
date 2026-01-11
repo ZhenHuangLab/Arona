@@ -1,4 +1,13 @@
 # Backend API Dependencies
+#
+# Default: local Qwen3-VL embedding/reranking (CUDA 11.8 / cu118).
+# We pin torch/torchvision to the cu118 builds to support Pascal GPUs (e.g. GTX 1080 Ti).
+#
+# pip will need both indexes:
+# - PyTorch cu118 wheels: https://download.pytorch.org/whl/cu118
+# - PyPI for the rest:   https://pypi.org/simple
+--index-url https://download.pytorch.org/whl/cu118
+--extra-index-url https://pypi.org/simple
 
 # FastAPI and server
 fastapi>=0.104.0
@@ -21,40 +30,27 @@ aiofiles>=23.0.0
 python-json-logger>=2.0.0
 
 # ============================================================================
-# Local Embedding Dependencies (Optional - for Plan B local GPU deployment)
+# Local GPU Dependencies (Default - Qwen3-VL embedding/reranking)
 # ============================================================================
-# NOTE: These dependencies are ONLY needed if you plan to use local GPU-based
-# embedding/reranking (EMBEDDING_PROVIDER=local_gpu). If using online APIs
-# (OpenAI, Jina, etc.), you can skip installing these packages.
+# This repo defaults to local Qwen3-VL embedding/reranking in `env.example`.
+# For GTX 1080 Ti (Pascal, sm_61), prefer CUDA 11.8 wheels.
 #
-# Installation instructions:
-# 1. Install PyTorch with CUDA 11.8 support (for Pascal GTX 1080 Ti):
-#    pip install torch==2.3.1 torchvision==0.18.1 triton==2.3.1 --index-url https://download.pytorch.org/whl/cu118
-#
-# 2. Install transformers and related packages:
-#    pip install transformers==4.51.3 sentence-transformers>=2.3.0 accelerate safetensors pillow
-#
-# Version constraints explained:
-# - torch==2.3.1+cu118: Validated on Pascal (sm_61) via CUDA 11.8 wheels; newer cu12x wheels may drop Pascal support
-# - transformers==4.51.3: REQUIRED for GME-Qwen2-VL-2B compatibility. DO NOT upgrade to 4.52+
-#   as it breaks GME model loading. See: https://github.com/Alibaba-NLP/GME/issues/xxx
-# - sentence-transformers>=2.3.0: Stable version with good SentenceTransformer API
-# - accelerate>=0.25.0: For efficient model loading and device mapping
-# - safetensors>=0.4.0: Fast and safe model weight loading
-# - pillow>=10.0.0: Required for multimodal (image) embedding support
+# PyTorch (cu118)
+torch==2.7.1+cu118
+torchvision==0.22.1+cu118
+triton==3.3.1; platform_machine == "x86_64" and sys_platform == "linux"
 
-# PyTorch (CUDA 11.8 for Pascal architecture)
-# Install separately (example): pip install torch==2.3.1 torchvision==0.18.1 triton==2.3.1 --index-url https://download.pytorch.org/whl/cu118
-# torch==2.3.1
+# Transformers and Qwen3-VL
+transformers>=4.57.0
+qwen-vl-utils>=0.0.14
 
-# Transformers and NLP
-transformers==4.51.3  # LOCKED: Required for GME compatibility, DO NOT upgrade to 4.52+
-sentence-transformers>=2.3.0  # For embedding model inference
-accelerate>=0.25.0  # Model loading optimization
-safetensors>=0.4.0  # Fast model weight loading
+# Embedding / inference utilities
+sentence-transformers>=2.3.0
+accelerate>=0.25.0
+safetensors>=0.4.0
 
 # NumPy (compatibility constraint)
 numpy<2  # LOCKED: sentence-transformers has compatibility issues with NumPy 2.x
 
-# Image processing (for multimodal embedding)
-pillow>=10.0.0  # Already in raganything optional deps, but needed for GME
+# Image processing (required by Qwen3-VL processors)
+pillow>=10.0.0

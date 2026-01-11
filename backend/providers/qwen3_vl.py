@@ -99,6 +99,17 @@ def _pool_last_token(hidden_state: Any, attention_mask: Any, *, torch_module: An
     return hidden_state[row, col]
 
 
+def _as_positive_int(value: Any) -> Optional[int]:
+    """Convert value to a positive int if possible."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
 class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
     """Local GPU embedding provider using Qwen3-VL-Embedding-* models."""
 
@@ -135,7 +146,7 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
         except Exception as exc:  # pylint: disable=broad-except
             raise RuntimeError(
                 "Qwen3-VL embedding provider requires a working torch + transformers installation. "
-                "If you're on GTX 1080 Ti, prefer torch CUDA 11.8 wheels (e.g. torch==2.3.x+cu118) "
+                "If you're on GTX 1080 Ti, prefer torch CUDA 11.8 wheels (e.g. torch==2.7.1+cu118) "
                 "and transformers>=4.57.0 (Qwen3-VL support), plus qwen-vl-utils."
             ) from exc
 
@@ -183,30 +194,40 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
                 # Embedding pooling uses attention_mask, so padding side is flexible.
                 self.processor.tokenizer.padding_side = "right"
 
-            base_dim = getattr(getattr(self.model, "config", None), "hidden_size", None)
-            if base_dim is None:
-                base_dim = getattr(getattr(lm, "config", None), "hidden_size", None)
-            if base_dim is None:
-                raise RuntimeError("Failed to infer Qwen3-VL hidden_size for embedding_dim")
-
             requested_dim = config.embedding_dim
-            if requested_dim is None:
-                requested_dim = int(base_dim)
-            else:
+            if requested_dim is not None:
                 requested_dim = int(requested_dim)
                 if requested_dim <= 0:
                     raise ValueError(f"Invalid embedding_dim: {requested_dim}")
-                if requested_dim > int(base_dim):
-                    raise ValueError(
-                        f"Configured embedding_dim ({requested_dim}) exceeds model hidden size ({base_dim})."
-                    )
 
-            self._base_dim = int(base_dim)
-            self._embedding_dim = int(requested_dim)
+            # We infer the true hidden size from a warmup forward pass instead of relying
+            # on config.hidden_size. Qwen3-VL configs commonly nest the language config
+            # (e.g., text_config.hidden_size) and may not expose hidden_size directly.
+            #
+            # To infer base_dim reliably, run warmup with a very large slice so we get the
+            # full pooled representation (no truncation).
+            temp_dim = _as_positive_int(config.extra_params.get("infer_base_dim_max")) or 131072
+            temp_dim = max(temp_dim, 131072)
+            self._embedding_dim = temp_dim
 
             # Warmup to allocate kernels and validate the forward path.
             logger.info("Performing Qwen3-VL embedding warmup inference...")
-            _ = self._embed_sync(["warmup text"], instruction=self.default_instruction)
+            warmup = self._embed_sync(["warmup text"], instruction=self.default_instruction)
+            base_dim = int(warmup.shape[1]) if hasattr(warmup, "shape") and len(warmup.shape) >= 2 else None
+            if base_dim is None or base_dim <= 0:
+                raise RuntimeError(
+                    "Failed to infer Qwen3-VL embedding hidden size from warmup inference output."
+                )
+
+            if requested_dim is None:
+                requested_dim = base_dim
+            elif requested_dim > base_dim:
+                raise ValueError(
+                    f"Configured embedding_dim ({requested_dim}) exceeds model hidden size ({base_dim})."
+                )
+
+            self._base_dim = int(base_dim)
+            self._embedding_dim = int(requested_dim)
 
             if torch.cuda.is_available() and isinstance(self.device, str) and self.device.startswith("cuda"):
                 allocated = torch.cuda.memory_allocated(self.device) / 1024**3
@@ -341,6 +362,26 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
 
             return pooled.float().cpu().numpy().astype(np.float32)
 
+    async def shutdown(self) -> None:
+        """Best-effort release of GPU/CPU resources."""
+        async with self._lock:
+            try:
+                self.model = None  # type: ignore[assignment]
+            except Exception:
+                pass
+            try:
+                self.processor = None  # type: ignore[assignment]
+            except Exception:
+                pass
+
+            torch = getattr(self, "_torch", None)
+            if torch is not None:
+                try:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
+
 
 class Qwen3VLRerankerProvider(BaseRerankerProvider):
     """Local GPU reranker provider using Qwen3-VL-Reranker-* models (multimodal-capable)."""
@@ -389,7 +430,7 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
         except Exception as exc:  # pylint: disable=broad-except
             raise RuntimeError(
                 "Qwen3-VL reranker provider requires a working torch + transformers installation. "
-                "If you're on GTX 1080 Ti, prefer torch CUDA 11.8 wheels (e.g. torch==2.3.x+cu118) "
+                "If you're on GTX 1080 Ti, prefer torch CUDA 11.8 wheels (e.g. torch==2.7.1+cu118) "
                 "and transformers>=4.57.0 (Qwen3-VL support), plus qwen-vl-utils."
             ) from exc
 
@@ -478,6 +519,23 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
         except Exception as exc:
             logger.error("Failed to load Qwen3-VL reranker model: %s", exc, exc_info=True)
             raise RuntimeError(f"Failed to load Qwen3-VL reranker model: {exc}") from exc
+
+    async def shutdown(self) -> None:
+        """Best-effort release of GPU/CPU resources."""
+        async with self._lock:
+            for attr in ("model", "processor", "score_linear"):
+                try:
+                    setattr(self, attr, None)
+                except Exception:
+                    pass
+
+            torch = getattr(self, "_torch", None)
+            if torch is not None:
+                try:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
 
     @staticmethod
     def _require_token_id(tokenizer: Any, token: str) -> int:

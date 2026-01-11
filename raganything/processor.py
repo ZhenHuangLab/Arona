@@ -326,11 +326,27 @@ class ProcessorMixin:
                 f"Using {self.config.parser} parser with method: {parse_method}"
             )
 
-            # Add device parameter from config if not already specified (for MinerU)
-            if self.config.parser == "mineru" and "device" not in kwargs:
-                if hasattr(self.config, "mineru_device") and self.config.mineru_device:
+            if self.config.parser == "mineru":
+                # Add MinerU device/VRAM hints from config (if not overridden by caller)
+                if "device" not in kwargs and getattr(self.config, "mineru_device", None):
                     kwargs["device"] = self.config.mineru_device
-                    self.logger.info(f"Using configured MinerU device: {self.config.mineru_device}")
+                    self.logger.info(
+                        f"Using configured MinerU device: {self.config.mineru_device}"
+                    )
+
+                if "vram" not in kwargs and getattr(self.config, "mineru_vram", None):
+                    kwargs["vram"] = self.config.mineru_vram
+                    self.logger.info(
+                        f"Using configured MinerU VRAM limit: {self.config.mineru_vram} MiB"
+                    )
+
+                # Respect global multimodal toggles by default.
+                # Reason: Disabling table/equation processing should also avoid running
+                # the (often GPU-heavy) MinerU table/formula models during parsing.
+                if "formula" not in kwargs:
+                    kwargs["formula"] = bool(self.config.enable_equation_processing)
+                if "table" not in kwargs:
+                    kwargs["table"] = bool(self.config.enable_table_processing)
 
             if ext in [".pdf"]:
                 self.logger.info("Detected PDF file, using parser for PDF...")
