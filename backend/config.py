@@ -317,6 +317,9 @@ class BackendConfig:
     # Storage configuration (will be converted to absolute paths in from_env)
     working_dir: str = "./rag_storage"
     upload_dir: str = "./uploads"
+
+    # Chat storage configuration
+    chat_db_path: str = "backend/data/chat.db"
     
     # RAGAnything configuration
     parser: str = "mineru"  # or "docling"
@@ -366,6 +369,9 @@ class BackendConfig:
         # Storage paths - convert to absolute paths
         working_dir = os.path.abspath(os.getenv("WORKING_DIR", "./rag_storage"))
         upload_dir = os.path.abspath(os.getenv("UPLOAD_DIR", "./uploads"))
+
+        # Chat storage path
+        chat_db_path = os.path.abspath(os.getenv("CHAT_DB_PATH", "backend/data/chat.db"))
         
         # RAGAnything settings
         parser = os.getenv("PARSER", "mineru")
@@ -399,6 +405,7 @@ class BackendConfig:
             multimodal_embedding=multimodal_embedding,
             working_dir=working_dir,
             upload_dir=upload_dir,
+            chat_db_path=chat_db_path,
             parser=parser,
             enable_image_processing=enable_image,
             enable_table_processing=enable_table,
@@ -485,6 +492,7 @@ class BackendConfig:
             reranker=reranker,
             working_dir=os.path.abspath(data.get("working_dir", "./rag_storage")),
             upload_dir=os.path.abspath(data.get("upload_dir", "./uploads")),
+            chat_db_path=os.path.abspath(data.get("chat_db_path", "backend/data/chat.db")),
             parser=data.get("parser", "mineru"),
             enable_image_processing=data.get("enable_image_processing", True),
             enable_table_processing=data.get("enable_table_processing", True),

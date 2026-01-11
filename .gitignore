@@ -70,6 +70,7 @@ gui/
 
 # unit-test files
 test_*
+!backend/tests/test_*.py
 
 # Cline files
 memory-bank/
