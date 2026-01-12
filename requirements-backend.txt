@@ -38,7 +38,7 @@ python-json-logger>=2.0.0
 # PyTorch (cu118)
 torch==2.7.1+cu118
 torchvision==0.22.1+cu118
-triton==3.3.1; platform_machine == "x86_64" and sys_platform == "linux"
+triton==3.5.1; platform_machine == "x86_64" and sys_platform == "linux"
 
 # Transformers and Qwen3-VL
 transformers>=4.57.0
