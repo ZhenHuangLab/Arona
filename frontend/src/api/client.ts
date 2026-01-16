@@ -20,6 +20,53 @@ const configuredBackendUrl = import.meta.env.VITE_BACKEND_URL as string | undefi
 const BACKEND_URL = configuredBackendUrl || '';
 
 /**
+ * Extract a readable error message from common FastAPI error shapes.
+ *
+ * FastAPI may return:
+ * - { detail: "..." }
+ * - { detail: { code, message, extra } }  (our /api/chat endpoints)
+ * - { detail: [ { loc, msg, type }, ... ] } (validation errors)
+ */
+const extractErrorDetail = (data: unknown): string => {
+  if (typeof data === 'string') return data;
+
+  if (!data || typeof data !== 'object') return 'Unknown error';
+
+  const obj = data as Record<string, unknown>;
+  const detail = obj.detail;
+
+  if (typeof detail === 'string') return detail;
+
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((item) => {
+        if (!item || typeof item !== 'object') return undefined;
+        const msg = (item as { msg?: unknown }).msg;
+        return typeof msg === 'string' ? msg : undefined;
+      })
+      .filter((msg): msg is string => Boolean(msg));
+    return msgs.length ? msgs.join('; ') : 'Validation error';
+  }
+
+  if (detail && typeof detail === 'object') {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+    const code = (detail as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return 'Unknown error';
+    }
+  }
+
+  const message = obj.message;
+  if (typeof message === 'string') return message;
+
+  return 'Unknown error';
+};
+
+/**
  * Create axios instance with default configuration
  */
 const apiClient: AxiosInstance = axios.create({
@@ -65,7 +112,7 @@ apiClient.interceptors.response.use(
     if (error.response) {
       // Server responded with error status
       const status = error.response.status;
-      const detail = (error.response.data as { detail?: string })?.detail || error.message;
+      const detail = extractErrorDetail(error.response.data) || error.message;
       
       console.error(`[API Error ${status}]`, detail);
       

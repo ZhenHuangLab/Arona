@@ -1,25 +1,22 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { ChatMessage, QueryMode } from '../types/chat';
+import type { QueryMode } from '../types/chat';
 
 /**
- * Chat Store - Manages conversation state and history
+ * Chat Store - UI-only state for chat interface
  *
  * Responsibilities:
- * - Store conversation messages
- * - Add/remove messages
- * - Clear conversation
- * - Persist to localStorage
+ * - Store UI state (current mode, loading indicator)
+ * - NO message persistence (messages now come from backend via React Query)
+ *
+ * Note: Messages are now managed by useChatSessions / useChatMessagesFlat hooks
+ * using React Query, not Zustand.
  */
 interface ChatState {
-  messages: ChatMessage[];
   currentMode: QueryMode;
   isLoading: boolean;
 
   // Actions
-  addMessage: (message: ChatMessage) => void;
-  updateLastMessage: (content: string) => void;
-  clearMessages: () => void;
   setMode: (mode: QueryMode) => void;
   setLoading: (loading: boolean) => void;
 }
@@ -27,43 +24,18 @@ interface ChatState {
 export const useChatStore = create<ChatState>()(
   persist(
     (set) => ({
-      messages: [],
       currentMode: 'hybrid',
       isLoading: false,
-
-      addMessage: (message) =>
-        set((state) => ({
-          messages: [...state.messages, {
-            ...message,
-            timestamp: message.timestamp || new Date().toISOString(),
-          }],
-        })),
-
-      updateLastMessage: (content) =>
-        set((state) => {
-          const messages = [...state.messages];
-          if (messages.length > 0) {
-            messages[messages.length - 1] = {
-              ...messages[messages.length - 1],
-              content,
-            };
-          }
-          return { messages };
-        }),
-
-      clearMessages: () => set({ messages: [] }),
 
       setMode: (mode) => set({ currentMode: mode }),
 
       setLoading: (loading) => set({ isLoading: loading }),
     }),
     {
-      name: 'rag-chat-storage',
+      name: 'rag-chat-ui-storage',
       partialize: (state) => ({
-        messages: state.messages,
         currentMode: state.currentMode,
       }),
     }
   )
 );
-

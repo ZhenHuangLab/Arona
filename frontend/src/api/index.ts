@@ -8,4 +8,5 @@ export * from './config';
 export * from './documents';
 export * from './query';
 export * from './graph';
+export * from './chat';
 
