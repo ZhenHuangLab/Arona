@@ -4,61 +4,55 @@ import { cn } from '@/lib/utils';
 
 /**
  * Secondary Navigation Component
- * 
- * Navigation tabs for document sub-views (Upload/Graph/Library).
- * Implements minimalist design with rounded tabs and color differentiation.
+ *
+ * Compact navigation tabs for document sub-views (Upload/Graph/Library).
+ * Unified theme-aware styling to match AppShell visual system.
  */
 export function SecondaryNav() {
   const location = useLocation();
-  
+
   const tabs = [
     {
       path: '/documents/upload',
       label: 'Upload',
       icon: Upload,
-      color: 'blue',
     },
     {
       path: '/documents/graph',
       label: 'Graph',
       icon: Network,
-      color: 'purple',
     },
     {
       path: '/documents/library',
       label: 'Library',
       icon: Library,
-      color: 'green',
     },
   ];
 
   return (
-    <div className="flex justify-center gap-3 mb-8">
+    <nav className="flex flex-wrap gap-1" aria-label="Document sections">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = location.pathname === tab.path;
-        
+
         return (
           <Link
             key={tab.path}
             to={tab.path}
+            aria-current={isActive ? 'page' : undefined}
             className={cn(
-              'inline-flex items-center gap-2 px-6 py-3 rounded-xl border-2 font-medium transition-all',
+              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-transparent transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
               isActive
-                ? tab.color === 'blue'
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : tab.color === 'purple'
-                  ? 'bg-purple-600 text-white border-purple-600'
-                  : 'bg-green-600 text-white border-green-600'
-                : 'bg-background text-muted-foreground border-border hover:border-gray-400 hover:bg-gray-50'
+                ? 'bg-background text-foreground border-border shadow-sm'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             )}
           >
-            <Icon className="h-5 w-5" />
+            <Icon className="h-4 w-4" />
             <span>{tab.label}</span>
           </Link>
         );
       })}
-    </div>
+    </nav>
   );
 }
-
