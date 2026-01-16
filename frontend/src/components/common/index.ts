@@ -14,6 +14,6 @@ export {
 } from './SkeletonLoader';
 export { IconButton } from './IconButton';
 export { EmptyState } from './EmptyState';
+export { Markdown } from './Markdown';
 export { StatusBadge } from './StatusBadge';
 export { SkipToContent } from './SkipToContent';
-

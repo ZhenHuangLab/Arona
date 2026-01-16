@@ -144,6 +144,60 @@ export function useChat(sessionId?: string) {
       let assistantText = '';
       let response: Awaited<ReturnType<typeof createTurn>> | null = null;
 
+      const signal = abortControllerRef.current.signal;
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      const updateAssistantPlaceholder = (text: string) => {
+        queryClient.setQueryData<InfiniteData<MessageListResponse>>(
+          chatMessagesKeys.list(sessionId),
+          (old) => {
+            if (!old || old.pages.length === 0) return old;
+
+            const newPages = old.pages.slice();
+            const firstPage = newPages[0];
+            newPages[0] = {
+              ...firstPage,
+              messages: firstPage.messages.map((m) =>
+                m.id === assistantTempId ? { ...m, content: text } : m
+              ),
+            };
+
+            return { ...old, pages: newPages };
+          }
+        );
+      };
+
+      const applyDeltaWithTypewriter = async (delta: string) => {
+        if (!delta) return;
+
+        // If the provider already streams small chunks, the natural stream is the typing effect.
+        // When we only get a single large chunk, simulate a ChatGPT-like typewriter feel.
+        const shouldAnimate = !prefersReducedMotion && delta.length >= 40;
+        if (!shouldAnimate) {
+          assistantText += delta;
+          updateAssistantPlaceholder(assistantText);
+          return;
+        }
+
+        const tickMs = 16; // ~60fps
+        const maxDurationMs = 900;
+        const maxSteps = Math.max(1, Math.floor(maxDurationMs / tickMs));
+        const chunkSize = Math.max(8, Math.ceil(delta.length / maxSteps));
+
+        for (let i = 0; i < delta.length; i += chunkSize) {
+          if (signal.aborted) {
+            throw new DOMException('Aborted', 'AbortError');
+          }
+          assistantText += delta.slice(i, i + chunkSize);
+          updateAssistantPlaceholder(assistantText);
+          // Small delay so the UI can visually “type”.
+          await new Promise((resolve) => setTimeout(resolve, tickMs));
+        }
+      };
+
       try {
         for await (const event of createTurnStream(sessionId, {
           request_id,
@@ -152,26 +206,7 @@ export function useChat(sessionId?: string) {
           multimodal_content,
         }, { signal: abortControllerRef.current.signal })) {
           if (event.type === 'delta') {
-            assistantText += event.delta || '';
-
-            // Update assistant placeholder message content in React Query cache.
-            queryClient.setQueryData<InfiniteData<MessageListResponse>>(
-              chatMessagesKeys.list(sessionId),
-              (old) => {
-                if (!old || old.pages.length === 0) return old;
-
-                const newPages = old.pages.slice();
-                const firstPage = newPages[0];
-                newPages[0] = {
-                  ...firstPage,
-                  messages: firstPage.messages.map((m) =>
-                    m.id === assistantTempId ? { ...m, content: assistantText } : m
-                  ),
-                };
-
-                return { ...old, pages: newPages };
-              }
-            );
+            await applyDeltaWithTypewriter(event.delta || '');
           } else if (event.type === 'final') {
             response = event.response;
           }

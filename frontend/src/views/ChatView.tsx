@@ -4,7 +4,6 @@ import { MessageSquare, Plus, Loader2 } from 'lucide-react';
 import { ChatBox, InputBar } from '@/components/chat';
 import { useChat, useChatSession, useCreateSession } from '@/hooks';
 import { Button } from '@/components/ui/button';
-import type { QueryMode } from '@/types/chat';
 
 /**
  * Chat View
@@ -14,8 +13,8 @@ import type { QueryMode } from '@/types/chat';
  * Features:
  * - Supports /chat (empty state) and /chat/:sessionId routes
  * - Message history from backend via React Query
- * - Input bar with mode selector
- * - Session-aware message sending via /api/chat/.../turn
+ * - ChatGPT-style input bar (no mode selector)
+ * - Session-aware message sending via /api/chat/.../turn:stream
  *
  * Accessibility:
  * - Semantic HTML with proper ARIA labels
@@ -34,14 +33,14 @@ export const ChatView: React.FC = () => {
   const { data: session, isLoading: isLoadingSession } = useChatSession(sessionId);
 
   // Chat hook with session context
-  const { messages, currentMode, sendMessage, stopGenerating, isSending, isLoadingMessages } =
-    useChat(sessionId);
+  const { messages, sendMessage, stopGenerating, isSending, isLoadingMessages } = useChat(sessionId);
 
   // Create session mutation
   const createSessionMutation = useCreateSession();
 
-  const handleSendMessage = (message: string, mode: QueryMode, imageFile?: File | null) => {
-    sendMessage(message, mode, imageFile);
+  const handleSendMessage = (message: string, imageFile?: File | null) => {
+    // Backend currently enforces hybrid mode; keep UI simple and consistent.
+    sendMessage(message, 'hybrid', imageFile);
   };
 
   const handleCreateSession = async () => {
@@ -129,7 +128,6 @@ export const ChatView: React.FC = () => {
           onStop={stopGenerating}
           disabled={!sessionId}
           isLoading={isSending}
-          defaultMode={currentMode}
         />
       </div>
     </div>

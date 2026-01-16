@@ -1,5 +1,6 @@
 import { User, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Markdown } from '@/components/common';
 import type { ChatMessage } from '@/types/chat';
 
 interface MessageProps {
@@ -50,11 +51,12 @@ export function Message({ message }: MessageProps) {
             </span>
           )}
         </div>
-        <div className="text-sm whitespace-pre-wrap break-words">
-          {message.content}
-        </div>
+        {isUser ? (
+          <div className="text-sm whitespace-pre-wrap break-words">{message.content}</div>
+        ) : (
+          <Markdown content={message.content} />
+        )}
       </div>
     </div>
   );
 }
-

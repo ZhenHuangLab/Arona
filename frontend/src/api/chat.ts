@@ -239,7 +239,10 @@ export async function* createTurnStream(
 
   const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    },
     body: JSON.stringify(req),
     signal: options.signal,
   });
@@ -271,11 +274,14 @@ export async function* createTurnStream(
 
     // SSE events are separated by a blank line.
     while (true) {
-      const sepIndex = buffer.indexOf('\n\n');
-      if (sepIndex === -1) break;
+      const match = buffer.match(/\r?\n\r?\n/);
+      if (!match || match.index == null) break;
+
+      const sepIndex = match.index;
+      const sepLen = match[0].length;
 
       const rawEvent = buffer.slice(0, sepIndex);
-      buffer = buffer.slice(sepIndex + 2);
+      buffer = buffer.slice(sepIndex + sepLen);
 
       const lines = rawEvent.split(/\r?\n/);
       const dataLines = lines
@@ -285,8 +291,7 @@ export async function* createTurnStream(
       const data = dataLines.join('\n').trim();
       if (!data) continue;
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const event = JSON.parse(data);
+      const event: unknown = JSON.parse(data);
       yield event as TurnStreamEvent;
     }
   }

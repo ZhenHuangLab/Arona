@@ -110,7 +110,7 @@ test.describe('Chat Interface', () => {
     await expect(
       page.locator('#main-content').getByRole('button', { name: /new chat/i })
     ).toBeVisible();
-    await expect(page.getByPlaceholder('Type your message...')).not.toBeVisible();
+    await expect(page.getByPlaceholder('Ask anything...')).not.toBeVisible();
   });
 
   test('creates new session and navigates to it', async ({ page }) => {
@@ -155,39 +155,53 @@ test.describe('Chat Interface', () => {
       });
     });
 
-    // Mock turn API
-    await page.route(`**/api/chat/sessions/${sessionId}/turn`, async (route) => {
+    // Mock streaming turn API (SSE)
+    await page.route(`**/api/chat/sessions/${sessionId}/turn:stream`, async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
+      const userMessageId = uuidv4();
+      const assistantMessageId = uuidv4();
+      const assistantText = 'This is a test response from the assistant.';
+
       await route.fulfill({
         status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          turn_id: body.request_id,
-          status: 'completed',
-          user_message: {
-            id: uuidv4(),
-            session_id: sessionId,
-            role: 'user',
-            content: body.query,
-            created_at: new Date().toISOString(),
-            metadata: { mode: 'hybrid' },
-          },
-          assistant_message: {
-            id: uuidv4(),
-            session_id: sessionId,
-            role: 'assistant',
-            content: 'This is a test response from the assistant.',
-            created_at: new Date().toISOString(),
-            metadata: {},
-          },
-          error: null,
-        }),
+        contentType: 'text/event-stream',
+        body: [
+          `data: ${JSON.stringify({ type: 'delta', delta: 'This is a test ' })}`,
+          '',
+          `data: ${JSON.stringify({ type: 'delta', delta: 'response from the assistant.' })}`,
+          '',
+          `data: ${JSON.stringify({
+            type: 'final',
+            response: {
+              turn_id: body.request_id,
+              status: 'completed',
+              user_message: {
+                id: userMessageId,
+                session_id: sessionId,
+                role: 'user',
+                content: body.query,
+                created_at: new Date().toISOString(),
+                metadata: { mode: 'hybrid' },
+              },
+              assistant_message: {
+                id: assistantMessageId,
+                session_id: sessionId,
+                role: 'assistant',
+                content: assistantText,
+                created_at: new Date().toISOString(),
+                metadata: {},
+              },
+              error: null,
+            },
+          })}`,
+          '',
+        ].join('\n\n'),
       });
     });
 
     await page.goto(`/chat/${sessionId}`);
 
-    const messageInput = page.getByPlaceholder('Type your message...');
+    const messageInput = page.getByPlaceholder('Ask anything...');
     const sendButton = page.getByRole('button', { name: /send message/i });
 
     // Type and send a message
@@ -235,38 +249,48 @@ test.describe('Chat Interface', () => {
       });
     });
 
-    await page.route(`**/api/chat/sessions/${sessionId}/turn`, async (route) => {
+    await page.route(`**/api/chat/sessions/${sessionId}/turn:stream`, async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
+      const assistantText = 'Response via Enter key';
+
       await route.fulfill({
         status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          turn_id: body.request_id,
-          status: 'completed',
-          user_message: {
-            id: uuidv4(),
-            session_id: sessionId,
-            role: 'user',
-            content: body.query,
-            created_at: new Date().toISOString(),
-            metadata: { mode: 'hybrid' },
-          },
-          assistant_message: {
-            id: uuidv4(),
-            session_id: sessionId,
-            role: 'assistant',
-            content: 'Response via Enter key',
-            created_at: new Date().toISOString(),
-            metadata: {},
-          },
-          error: null,
-        }),
+        contentType: 'text/event-stream',
+        body: [
+          `data: ${JSON.stringify({ type: 'delta', delta: assistantText })}`,
+          '',
+          `data: ${JSON.stringify({
+            type: 'final',
+            response: {
+              turn_id: body.request_id,
+              status: 'completed',
+              user_message: {
+                id: uuidv4(),
+                session_id: sessionId,
+                role: 'user',
+                content: body.query,
+                created_at: new Date().toISOString(),
+                metadata: { mode: 'hybrid' },
+              },
+              assistant_message: {
+                id: uuidv4(),
+                session_id: sessionId,
+                role: 'assistant',
+                content: assistantText,
+                created_at: new Date().toISOString(),
+                metadata: {},
+              },
+              error: null,
+            },
+          })}`,
+          '',
+        ].join('\n\n'),
       });
     });
 
     await page.goto(`/chat/${sessionId}`);
 
-    const messageInput = page.getByPlaceholder('Type your message...');
+    const messageInput = page.getByPlaceholder('Ask anything...');
     await messageInput.fill('Test message');
     await messageInput.press('Enter');
 
@@ -307,7 +331,7 @@ test.describe('Chat Interface', () => {
 
     await page.goto(`/chat/${sessionId}`);
 
-    const messageInput = page.getByPlaceholder('Type your message...');
+    const messageInput = page.getByPlaceholder('Ask anything...');
 
     await messageInput.fill('Line 1');
     await messageInput.press('Shift+Enter');
@@ -317,7 +341,7 @@ test.describe('Chat Interface', () => {
     expect(value).toContain('\n');
   });
 
-  test('changes query mode', async ({ page }) => {
+  test('does not show query mode selector', async ({ page }) => {
     const sessionId = uuidv4();
 
     // Setup session mocks
@@ -349,17 +373,7 @@ test.describe('Chat Interface', () => {
     });
 
     await page.goto(`/chat/${sessionId}`);
-
-    const modeSelector = page.getByRole('combobox');
-
-    // Open mode selector
-    await modeSelector.click();
-
-    // Select "Local" mode
-    await page.getByRole('option', { name: 'Local' }).click();
-
-    // Verify mode is selected
-    await expect(modeSelector).toContainText('Local');
+    await expect(page.getByRole('combobox')).toHaveCount(0);
   });
 
   test('handles API errors gracefully', async ({ page }) => {
@@ -392,7 +406,7 @@ test.describe('Chat Interface', () => {
       });
     });
 
-    await page.route(`**/api/chat/sessions/${sessionId}/turn`, async (route) => {
+    await page.route(`**/api/chat/sessions/${sessionId}/turn:stream`, async (route) => {
       await route.fulfill({
         status: 500,
         contentType: 'application/json',
@@ -404,7 +418,7 @@ test.describe('Chat Interface', () => {
 
     await page.goto(`/chat/${sessionId}`);
 
-    const messageInput = page.getByPlaceholder('Type your message...');
+    const messageInput = page.getByPlaceholder('Ask anything...');
     const sendButton = page.getByRole('button', { name: /send message/i });
 
     await messageInput.fill('Test message');
@@ -445,39 +459,48 @@ test.describe('Chat Interface', () => {
     });
 
     // Delay the API response to test loading state
-    await page.route(`**/api/chat/sessions/${sessionId}/turn`, async (route) => {
+    await page.route(`**/api/chat/sessions/${sessionId}/turn:stream`, async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
       await new Promise((resolve) => setTimeout(resolve, 1000));
+      const assistantText = 'Delayed response';
       await route.fulfill({
         status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          turn_id: body.request_id,
-          status: 'completed',
-          user_message: {
-            id: uuidv4(),
-            session_id: sessionId,
-            role: 'user',
-            content: body.query,
-            created_at: new Date().toISOString(),
-            metadata: { mode: 'hybrid' },
-          },
-          assistant_message: {
-            id: uuidv4(),
-            session_id: sessionId,
-            role: 'assistant',
-            content: 'Delayed response',
-            created_at: new Date().toISOString(),
-            metadata: {},
-          },
-          error: null,
-        }),
+        contentType: 'text/event-stream',
+        body: [
+          `data: ${JSON.stringify({ type: 'delta', delta: assistantText })}`,
+          '',
+          `data: ${JSON.stringify({
+            type: 'final',
+            response: {
+              turn_id: body.request_id,
+              status: 'completed',
+              user_message: {
+                id: uuidv4(),
+                session_id: sessionId,
+                role: 'user',
+                content: body.query,
+                created_at: new Date().toISOString(),
+                metadata: { mode: 'hybrid' },
+              },
+              assistant_message: {
+                id: uuidv4(),
+                session_id: sessionId,
+                role: 'assistant',
+                content: assistantText,
+                created_at: new Date().toISOString(),
+                metadata: {},
+              },
+              error: null,
+            },
+          })}`,
+          '',
+        ].join('\n\n'),
       });
     });
 
     await page.goto(`/chat/${sessionId}`);
 
-    const messageInput = page.getByPlaceholder('Type your message...');
+    const messageInput = page.getByPlaceholder('Ask anything...');
     const sendButton = page.getByRole('button', { name: /send message/i });
 
     await messageInput.fill('Test');

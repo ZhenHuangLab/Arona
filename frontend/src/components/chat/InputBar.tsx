@@ -1,24 +1,21 @@
 import { useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Send, ImagePlus, X, Square } from 'lucide-react';
+import { Plus, Send, X, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { ModeSelector } from './ModeSelector';
-import type { QueryMode } from '@/types/chat';
 
 interface InputBarProps {
-  onSend: (message: string, mode: QueryMode, imageFile?: File | null) => void;
+  onSend: (message: string, imageFile?: File | null) => void;
   onStop?: () => void;
   disabled?: boolean;
   isLoading?: boolean;
-  defaultMode?: QueryMode;
 }
 
-/**
- * InputBar Component
- *
- * Chat input with mode selector and send button.
- * Supports Enter to send, Shift+Enter for new line.
+ /**
+  * InputBar Component
+  *
+  * Chat input with attachment and send/stop controls.
+  * Supports Enter to send, Shift+Enter for new line.
  *
  * Accessibility:
  * - ARIA labels for screen readers
@@ -36,12 +33,22 @@ export function InputBar({
   onStop,
   disabled = false,
   isLoading = false,
-  defaultMode = 'hybrid',
 }: InputBarProps) {
   const [message, setMessage] = useState('');
-  const [mode, setMode] = useState<QueryMode>(defaultMode);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const autosizeTextarea = (el?: HTMLTextAreaElement | null) => {
+    const target = el ?? textareaRef.current;
+    if (!target) return;
+
+    // Reset then grow to content. Clamp for usability.
+    target.style.height = '0px';
+    const maxHeight = 200;
+    const nextHeight = Math.min(target.scrollHeight, maxHeight);
+    target.style.height = `${nextHeight}px`;
+  };
 
   const handleSend = () => {
     const trimmedMessage = message.trim();
@@ -49,9 +56,11 @@ export function InputBar({
 
     if (canSend) {
       const finalMessage = trimmedMessage || 'Search similar images.';
-      onSend(finalMessage, mode, imageFile);
+      onSend(finalMessage, imageFile);
       setMessage('');
       setImageFile(null);
+      // Reset height after clearing (after React updates the textarea value).
+      requestAnimationFrame(() => autosizeTextarea());
     }
   };
 
@@ -72,33 +81,10 @@ export function InputBar({
   };
 
   return (
-    <div className="border-t bg-background p-2 sm:p-4">
-      {/* Mobile: Stacked layout, Desktop: Horizontal layout */}
-      <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
-        {/* Mode Selector - Full width on mobile */}
-        <div className="sm:w-auto w-full">
-          <ModeSelector
-            value={mode}
-            onChange={setMode}
-            disabled={disabled || isLoading}
-          />
-        </div>
-
-        {/* Message Input */}
-        <Textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Type your message..."
-          disabled={disabled || isLoading}
-          className="flex-1 min-h-[60px] max-h-[200px] resize-none"
-          rows={2}
-          aria-label="Message input"
-          aria-describedby="input-hint"
-        />
-
-        {/* Image Attachment */}
-        <div className="flex items-center gap-2">
+    <div className="border-t bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/50 p-2 sm:p-4">
+      <div className="mx-auto w-full max-w-3xl">
+        <div className="rounded-3xl border bg-background shadow-sm px-2 py-2 flex items-end gap-2 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+          {/* Hidden file input */}
           <input
             ref={fileInputRef}
             type="file"
@@ -111,52 +97,73 @@ export function InputBar({
               setImageFile(file);
             }}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-[60px] w-[60px] shrink-0"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={disabled || isLoading}
-            aria-label={imageFile ? 'Replace attached image' : 'Attach an image'}
-          >
-            <ImagePlus className="h-5 w-5" aria-hidden="true" />
-          </Button>
-        </div>
 
-        {/* Send Button - Touch-friendly size */}
-        <Button
-          onClick={handlePrimaryAction}
-          disabled={disabled || (isLoading ? !onStop : (!message.trim() && !imageFile))}
-          size="icon"
-          className="h-[60px] w-[60px] shrink-0"
-          aria-label={isLoading ? 'Stop generating' : 'Send message'}
-        >
-          {isLoading ? (
-            <Square className="h-5 w-5" aria-hidden="true" />
-          ) : (
-            <Send className="h-5 w-5" aria-hidden="true" />
-          )}
-          <span className="sr-only">{isLoading ? 'Stop generating' : 'Send message'}</span>
-        </Button>
-      </div>
-
-      {/* Attached image indicator */}
-      {imageFile && (
-        <div className="mt-2 flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-xs">
-          <span className="truncate" title={imageFile.name}>
-            Attached image: {imageFile.name}
-          </span>
+          {/* Attach button (ChatGPT-style “+”) */}
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="h-6 w-6"
-            onClick={() => setImageFile(null)}
-            aria-label="Remove attached image"
+            className="h-10 w-10 rounded-full shrink-0"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || isLoading}
+            aria-label={imageFile ? 'Replace attached image' : 'Attach an image'}
           >
-            <X className="h-4 w-4" aria-hidden="true" />
+            <Plus className="h-5 w-5" aria-hidden="true" />
           </Button>
+
+          {/* Message Input */}
+          <Textarea
+            ref={textareaRef}
+            value={message}
+            onChange={(e) => {
+              setMessage(e.target.value);
+              autosizeTextarea(e.target);
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask anything..."
+            disabled={disabled || isLoading}
+            className="flex-1 min-h-[44px] max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 px-2 py-2"
+            rows={1}
+            aria-label="Message input"
+            aria-describedby="input-hint"
+          />
+
+          {/* Primary action: Send / Stop */}
+          <Button
+            onClick={handlePrimaryAction}
+            disabled={disabled || (isLoading ? !onStop : (!message.trim() && !imageFile))}
+            size="icon"
+            className="h-10 w-10 rounded-full shrink-0"
+            aria-label={isLoading ? 'Stop generating' : 'Send message'}
+          >
+            {isLoading ? (
+              <Square className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Send className="h-4 w-4" aria-hidden="true" />
+            )}
+            <span className="sr-only">{isLoading ? 'Stop generating' : 'Send message'}</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Attached image indicator */}
+      {imageFile && (
+        <div className="mx-auto mt-2 w-full max-w-3xl">
+          <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-xs">
+            <span className="truncate" title={imageFile.name}>
+              Attached image: {imageFile.name}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setImageFile(null)}
+              aria-label="Remove attached image"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
         </div>
       )}
 
