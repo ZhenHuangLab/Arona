@@ -105,22 +105,94 @@ test.describe('Chat Interface', () => {
   test('shows empty state on /chat', async ({ page }) => {
     await page.goto('/chat');
 
-    await expect(page.getByText('Welcome to Arona Chat')).toBeVisible();
-    // Empty-state CTA button (scope to main content to avoid sidebar icon button)
-    await expect(
-      page.locator('#main-content').getByRole('button', { name: /new chat/i })
-    ).toBeVisible();
-    await expect(page.getByPlaceholder('Ask anything...')).not.toBeVisible();
+    await expect(page.getByText('Welcome to Arona Chat')).toHaveCount(0);
+    await expect(page.getByPlaceholder('Ask anything...')).toBeVisible();
+    await expect(page.locator('aside').getByRole('button', { name: /new chat/i })).toHaveCount(0);
   });
 
-  test('creates new session and navigates to it', async ({ page }) => {
+  test('creates new session only after first send', async ({ page }) => {
+    // Mock session detail for any newly-created session ID
+    await page.route(/\/api\/chat\/sessions\/[^/]+$/, async (route) => {
+      const sessionId = route.request().url().split('/').pop() || uuidv4();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: sessionId,
+          title: 'New Chat',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
+        }),
+      });
+    });
+
+    // Mock messages list (empty initially)
+    await page.route(/\/api\/chat\/sessions\/[^/]+\/messages.*/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [],
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    });
+
+    // Mock streaming turn API (SSE) for any session
+    await page.route(/\/api\/chat\/sessions\/[^/]+\/turn:stream$/, async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      const sessionId = route.request().url().split('/').slice(-2)[0] || uuidv4();
+      const assistantText = 'Hello! This is a test response.';
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          `data: ${JSON.stringify({ type: 'delta', delta: assistantText })}`,
+          '',
+          `data: ${JSON.stringify({
+            type: 'final',
+            response: {
+              turn_id: body.request_id,
+              status: 'completed',
+              user_message: {
+                id: uuidv4(),
+                session_id: sessionId,
+                role: 'user',
+                content: body.query,
+                created_at: new Date().toISOString(),
+                metadata: { mode: 'hybrid' },
+              },
+              assistant_message: {
+                id: uuidv4(),
+                session_id: sessionId,
+                role: 'assistant',
+                content: assistantText,
+                created_at: new Date().toISOString(),
+                metadata: {},
+              },
+              error: null,
+            },
+          })}`,
+          '',
+        ].join('\n\n'),
+      });
+    });
+
     await page.goto('/chat');
 
-    // Click the new chat button in sidebar
-    await page.locator('aside').getByRole('button', { name: /new chat/i }).click();
+    const messageInput = page.getByPlaceholder('Ask anything...');
+    const sendButton = page.getByRole('button', { name: /send message/i });
+
+    await messageInput.fill('Hello from draft');
+    await sendButton.click();
 
     // Should navigate to new session URL
     await expect(page).toHaveURL(/\/chat\/[a-f0-9-]+/);
+    await expect(page.getByText('Hello from draft')).toBeVisible();
   });
 
   test('sends message via new turn API and displays response', async ({ page }) => {

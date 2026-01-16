@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Plus, Send, X, Square } from 'lucide-react';
+import { Loader2, Plus, Send, X, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -9,6 +9,8 @@ interface InputBarProps {
   onStop?: () => void;
   disabled?: boolean;
   isLoading?: boolean;
+  isStarting?: boolean;
+  placement?: 'docked' | 'centered';
 }
 
  /**
@@ -33,6 +35,8 @@ export function InputBar({
   onStop,
   disabled = false,
   isLoading = false,
+  isStarting = false,
+  placement = 'docked',
 }: InputBarProps) {
   const [message, setMessage] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -52,7 +56,7 @@ export function InputBar({
 
   const handleSend = () => {
     const trimmedMessage = message.trim();
-    const canSend = (!disabled && !isLoading) && (trimmedMessage || imageFile);
+    const canSend = (!disabled && !isLoading && !isStarting) && (trimmedMessage || imageFile);
 
     if (canSend) {
       const finalMessage = trimmedMessage || 'Search similar images.';
@@ -65,6 +69,7 @@ export function InputBar({
   };
 
   const handlePrimaryAction = () => {
+    if (isStarting) return;
     if (isLoading) {
       onStop?.();
       return;
@@ -73,6 +78,7 @@ export function InputBar({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isStarting) return;
     // Send on Enter (without Shift)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -80,10 +86,18 @@ export function InputBar({
     }
   };
 
+  const primaryLabel = isStarting ? 'Starting chat' : isLoading ? 'Stop generating' : 'Send message';
+
   return (
-    <div className="border-t bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/50 p-2 sm:p-4">
+    <div
+      className={
+        placement === 'centered'
+          ? 'w-full'
+          : 'border-t bg-background/40 backdrop-blur-xl supports-[backdrop-filter]:bg-background/30 p-2 sm:p-4'
+      }
+    >
       <div className="mx-auto w-full max-w-3xl">
-        <div className="rounded-3xl border bg-background shadow-sm px-2 py-2 flex items-end gap-2 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+        <div className="rounded-3xl border border-border/60 bg-background/60 shadow-sm px-2 py-2 flex items-end gap-2 backdrop-blur-xl supports-[backdrop-filter]:bg-background/50 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
           {/* Hidden file input */}
           <input
             ref={fileInputRef}
@@ -105,7 +119,7 @@ export function InputBar({
             size="icon"
             className="h-10 w-10 rounded-full shrink-0"
             onClick={() => fileInputRef.current?.click()}
-            disabled={disabled || isLoading}
+            disabled={disabled || isLoading || isStarting}
             aria-label={imageFile ? 'Replace attached image' : 'Attach an image'}
           >
             <Plus className="h-5 w-5" aria-hidden="true" />
@@ -121,7 +135,7 @@ export function InputBar({
             }}
             onKeyDown={handleKeyDown}
             placeholder="Ask anything..."
-            disabled={disabled || isLoading}
+            disabled={disabled || isLoading || isStarting}
             className="flex-1 min-h-[44px] max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 px-2 py-2"
             rows={1}
             aria-label="Message input"
@@ -131,17 +145,23 @@ export function InputBar({
           {/* Primary action: Send / Stop */}
           <Button
             onClick={handlePrimaryAction}
-            disabled={disabled || (isLoading ? !onStop : (!message.trim() && !imageFile))}
+            disabled={
+              disabled ||
+              isStarting ||
+              (isLoading ? !onStop : (!message.trim() && !imageFile))
+            }
             size="icon"
             className="h-10 w-10 rounded-full shrink-0"
-            aria-label={isLoading ? 'Stop generating' : 'Send message'}
+            aria-label={primaryLabel}
           >
-            {isLoading ? (
+            {isStarting ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : isLoading ? (
               <Square className="h-4 w-4" aria-hidden="true" />
             ) : (
               <Send className="h-4 w-4" aria-hidden="true" />
             )}
-            <span className="sr-only">{isLoading ? 'Stop generating' : 'Send message'}</span>
+            <span className="sr-only">{primaryLabel}</span>
           </Button>
         </div>
       </div>

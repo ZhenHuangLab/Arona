@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   MessageSquare,
   FileText,
-  Plus,
   Search,
   MoreHorizontal,
   Pencil,
@@ -11,18 +10,14 @@ import {
   Loader2,
   Check,
   X,
+  PanelLeftClose,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ThemeToggle } from '@/components/theme';
 import { SettingsModal } from './SettingsModal';
-import {
-  useChatSessions,
-  useCreateSession,
-  useRenameSession,
-  useDeleteSession,
-} from '@/hooks';
+import { useChatSessions, useRenameSession, useDeleteSession } from '@/hooks';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,7 +38,11 @@ import type { ChatSessionWithStats } from '@/types/chat';
  * - Infinite scroll (load more)
  * - Active session highlighting
  */
-export function Sidebar() {
+interface SidebarProps {
+  onCollapse?: () => void;
+}
+
+export function Sidebar({ onCollapse }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { sessionId: activeSessionId } = useParams<{ sessionId?: string }>();
@@ -85,7 +84,6 @@ export function Sidebar() {
     sessionsData?.pages.flatMap((page) => page.sessions) ?? [];
 
   // Mutations
-  const createSessionMutation = useCreateSession();
   const renameSessionMutation = useRenameSession();
   const deleteSessionMutation = useDeleteSession();
 
@@ -93,16 +91,6 @@ export function Sidebar() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
-
-  // Handle new chat
-  const handleNewChat = async () => {
-    try {
-      const newSession = await createSessionMutation.mutateAsync(undefined);
-      navigate(`/chat/${newSession.id}`);
-    } catch {
-      // Error handled by mutation
-    }
-  };
 
   // Handle rename start
   const handleStartRename = (session: ChatSessionWithStats) => {
@@ -159,13 +147,25 @@ export function Sidebar() {
   return (
     <aside className="flex flex-col w-64 border-r bg-background">
       {/* Top: Logo/Brand */}
-      <div className="p-4 border-b">
-        <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-          <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center">
+      <div className="p-4 border-b flex items-center justify-between gap-2">
+        <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity min-w-0">
+          <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center shrink-0">
             <span className="text-primary-foreground font-bold text-lg">A</span>
           </div>
-          <span className="text-xl font-semibold tracking-tight">Arona</span>
+          <span className="text-xl font-semibold tracking-tight truncate">Arona</span>
         </Link>
+        {onCollapse ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={onCollapse}
+            aria-label="Collapse sidebar"
+          >
+            <PanelLeftClose className="h-5 w-5" aria-hidden="true" />
+          </Button>
+        ) : null}
       </div>
 
       {/* Navigation Links */}
@@ -205,26 +205,9 @@ export function Sidebar() {
       {/* Chats Section */}
       <div className="flex-1 overflow-hidden flex flex-col p-3 border-t">
         <div className="space-y-3 flex flex-col flex-1 min-h-0">
-          {/* Header with New Chat button */}
-          <div className="flex items-center justify-between shrink-0">
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Chats
-            </h2>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              aria-label="New chat"
-              onClick={handleNewChat}
-              disabled={createSessionMutation.isPending}
-            >
-              {createSessionMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
+            Chats
+          </h2>
 
           {/* Search input */}
           <div className="relative shrink-0">

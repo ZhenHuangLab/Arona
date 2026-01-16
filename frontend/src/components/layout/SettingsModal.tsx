@@ -130,6 +130,7 @@ export function SettingsModal() {
   const [showModelEditor, setShowModelEditor] = useState(false);
   const [editorState, setEditorState] = useState<ModelEditorState>(DEFAULT_EDITOR_STATE);
   const baselineStateRef = useRef<ModelEditorState>(DEFAULT_EDITOR_STATE);
+  const showLegacyModelEditor = import.meta.env.VITE_LEGACY_MODEL_EDITOR === '1';
 
   // Query backend health status
   const {
@@ -194,6 +195,7 @@ export function SettingsModal() {
       if (data.status === 'success') {
         toast.success('Models Updated', data.env_file ? `${data.message} (${data.env_file})` : data.message);
         refetchConfig();
+        setShowModelEditor(false);
       } else if (data.status === 'noop') {
         toast.info('No Changes', data.message);
       } else {
@@ -366,6 +368,11 @@ export function SettingsModal() {
     updateModelsMutation.mutate(requestBody);
   };
 
+  const handleCancelModelEdit = () => {
+    setEditorState(baselineStateRef.current);
+    setShowModelEditor(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -485,14 +492,38 @@ export function SettingsModal() {
                   )}
                   Hot Reload
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowModelEditor(v => !v)}
-                  disabled={configLoading}
-                >
-                  {showModelEditor ? 'Hide Editor' : 'Edit Models'}
-                </Button>
+                {showModelEditor ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCancelModelEdit}
+                      disabled={updateModelsMutation.isPending || configLoading}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleSaveModels}
+                      disabled={updateModelsMutation.isPending || configLoading}
+                    >
+                      {updateModelsMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : null}
+                      Save & Apply
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowModelEditor(true)}
+                    disabled={configLoading}
+                  >
+                    Modify
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -530,64 +561,301 @@ export function SettingsModal() {
                 {/* LLM Configuration */}
                 <div className="rounded-lg border p-3 space-y-2">
                   <h4 className="text-sm font-medium">LLM Provider</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-muted-foreground">Provider:</div>
-                    <div className="font-mono text-xs">{configData.models.llm.provider}</div>
+                  {showModelEditor ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label>Provider</Label>
+                        <Select
+                          value={editorState.llm.provider}
+                          onValueChange={(v) =>
+                            setEditorState(s => ({ ...s, llm: { ...s.llm, provider: v } }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select provider" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="openai">openai</SelectItem>
+                            <SelectItem value="azure">azure</SelectItem>
+                            <SelectItem value="custom">custom</SelectItem>
+                            <SelectItem value="local">local</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Model Name</Label>
+                        <Input
+                          value={editorState.llm.model_name}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, llm: { ...s.llm, model_name: e.target.value } }))
+                          }
+                          placeholder="e.g. gpt-4o-mini"
+                        />
+                      </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label>Base URL (optional)</Label>
+                        <Input
+                          value={editorState.llm.base_url}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, llm: { ...s.llm, base_url: e.target.value } }))
+                          }
+                          placeholder="e.g. https://api.openai.com/v1"
+                        />
+                      </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label>API Key (leave blank to keep)</Label>
+                        <Input
+                          type="password"
+                          value={editorState.llm.api_key}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, llm: { ...s.llm, api_key: e.target.value } }))
+                          }
+                          placeholder="sk-..."
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Temperature</Label>
+                        <Input
+                          type="number"
+                          value={editorState.llm.temperature}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, llm: { ...s.llm, temperature: e.target.value } }))
+                          }
+                          placeholder="0.7"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Max Tokens</Label>
+                        <Input
+                          type="number"
+                          value={editorState.llm.max_tokens}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, llm: { ...s.llm, max_tokens: e.target.value } }))
+                          }
+                          placeholder="4096"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="text-muted-foreground">Provider:</div>
+                      <div className="font-mono text-xs">{configData.models.llm.provider}</div>
 
-                    <div className="text-muted-foreground">Model:</div>
-                    <div className="font-mono text-xs">{configData.models.llm.model_name}</div>
+                      <div className="text-muted-foreground">Model:</div>
+                      <div className="font-mono text-xs">{configData.models.llm.model_name}</div>
 
-                    {configData.models.llm.base_url && (
-                      <>
-                        <div className="text-muted-foreground">Base URL:</div>
-                        <div className="font-mono text-xs truncate" title={configData.models.llm.base_url}>
-                          {configData.models.llm.base_url}
-                        </div>
-                      </>
-                    )}
+                      {configData.models.llm.base_url && (
+                        <>
+                          <div className="text-muted-foreground">Base URL:</div>
+                          <div className="font-mono text-xs truncate" title={configData.models.llm.base_url}>
+                            {configData.models.llm.base_url}
+                          </div>
+                        </>
+                      )}
 
-                    {configData.models.llm.temperature !== undefined && (
-                      <>
-                        <div className="text-muted-foreground">Temperature:</div>
-                        <div className="font-mono text-xs">{configData.models.llm.temperature}</div>
-                      </>
-                    )}
+                      {configData.models.llm.temperature !== undefined && (
+                        <>
+                          <div className="text-muted-foreground">Temperature:</div>
+                          <div className="font-mono text-xs">{configData.models.llm.temperature}</div>
+                        </>
+                      )}
 
-                    {configData.models.llm.max_tokens !== undefined && (
-                      <>
-                        <div className="text-muted-foreground">Max Tokens:</div>
-                        <div className="font-mono text-xs">{configData.models.llm.max_tokens}</div>
-                      </>
-                    )}
-                  </div>
+                      {configData.models.llm.max_tokens !== undefined && (
+                        <>
+                          <div className="text-muted-foreground">Max Tokens:</div>
+                          <div className="font-mono text-xs">{configData.models.llm.max_tokens}</div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Embedding Configuration */}
                 <div className="rounded-lg border p-3 space-y-2">
                   <h4 className="text-sm font-medium">Embedding Model</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-muted-foreground">Provider:</div>
-                    <div className="font-mono text-xs">{configData.models.embedding.provider}</div>
-
-                    <div className="text-muted-foreground">Model:</div>
-                    <div className="font-mono text-xs">{configData.models.embedding.model_name}</div>
-
-                    {configData.models.embedding.base_url && (
-                      <>
-                        <div className="text-muted-foreground">Base URL:</div>
-                        <div className="font-mono text-xs truncate" title={configData.models.embedding.base_url}>
-                          {configData.models.embedding.base_url}
+                  {showModelEditor ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label>Provider</Label>
+                        <Select
+                          value={editorState.embedding.provider}
+                          onValueChange={(v) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, provider: v } }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select provider" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="openai">openai</SelectItem>
+                            <SelectItem value="azure">azure</SelectItem>
+                            <SelectItem value="custom">custom</SelectItem>
+                            <SelectItem value="local">local</SelectItem>
+                            <SelectItem value="local_gpu">local_gpu</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Model Name</Label>
+                        <Input
+                          value={editorState.embedding.model_name}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, model_name: e.target.value } }))
+                          }
+                          placeholder="e.g. Qwen/Qwen3-VL-Embedding-2B"
+                        />
+                      </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label>Base URL (optional)</Label>
+                        <Input
+                          value={editorState.embedding.base_url}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, base_url: e.target.value } }))
+                          }
+                          placeholder="(leave empty for local_gpu)"
+                        />
+                      </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label>API Key (leave blank to keep)</Label>
+                        <Input
+                          type="password"
+                          value={editorState.embedding.api_key}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, api_key: e.target.value } }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Embedding Dim</Label>
+                        <Input
+                          type="number"
+                          value={editorState.embedding.embedding_dim}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, embedding_dim: e.target.value } }))
+                          }
+                          placeholder="e.g. 2048"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Device</Label>
+                        <Input
+                          value={editorState.embedding.device}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, device: e.target.value } }))
+                          }
+                          placeholder="cuda:0 / cpu"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>DType</Label>
+                        <Input
+                          value={editorState.embedding.dtype}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, dtype: e.target.value } }))
+                          }
+                          placeholder="float16"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Attention</Label>
+                        <Input
+                          value={editorState.embedding.attn_implementation}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, attn_implementation: e.target.value } }))
+                          }
+                          placeholder="sdpa / eager"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Max Length</Label>
+                        <Input
+                          type="number"
+                          value={editorState.embedding.max_length}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, max_length: e.target.value } }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Min Image Tokens</Label>
+                        <Input
+                          type="number"
+                          value={editorState.embedding.min_image_tokens}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, min_image_tokens: e.target.value } }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Max Image Tokens</Label>
+                        <Input
+                          type="number"
+                          value={editorState.embedding.max_image_tokens}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, max_image_tokens: e.target.value } }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label>Default Instruction</Label>
+                        <Input
+                          value={editorState.embedding.default_instruction}
+                          onChange={(e) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, default_instruction: e.target.value } }))
+                          }
+                          placeholder="Represent the user's input."
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-md border p-3 col-span-2">
+                        <div className="space-y-1">
+                          <Label>Normalize</Label>
+                          <div className="text-xs text-muted-foreground">L2-normalize output embeddings</div>
                         </div>
-                      </>
-                    )}
+                        <Switch
+                          checked={editorState.embedding.normalize}
+                          onCheckedChange={(checked) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, normalize: checked } }))
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-md border p-3 col-span-2">
+                        <div className="space-y-1">
+                          <Label>Allow Image URLs</Label>
+                          <div className="text-xs text-muted-foreground">Security risk: keep off unless trusted</div>
+                        </div>
+                        <Switch
+                          checked={editorState.embedding.allow_image_urls}
+                          onCheckedChange={(checked) =>
+                            setEditorState(s => ({ ...s, embedding: { ...s.embedding, allow_image_urls: checked } }))
+                          }
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="text-muted-foreground">Provider:</div>
+                      <div className="font-mono text-xs">{configData.models.embedding.provider}</div>
 
-                    {configData.models.embedding.embedding_dim !== undefined && (
-                      <>
-                        <div className="text-muted-foreground">Dimension:</div>
-                        <div className="font-mono text-xs">{configData.models.embedding.embedding_dim}</div>
-                      </>
-                    )}
-                  </div>
+                      <div className="text-muted-foreground">Model:</div>
+                      <div className="font-mono text-xs">{configData.models.embedding.model_name}</div>
+
+                      {configData.models.embedding.base_url && (
+                        <>
+                          <div className="text-muted-foreground">Base URL:</div>
+                          <div className="font-mono text-xs truncate" title={configData.models.embedding.base_url}>
+                            {configData.models.embedding.base_url}
+                          </div>
+                        </>
+                      )}
+
+                      {configData.models.embedding.embedding_dim !== undefined && (
+                        <>
+                          <div className="text-muted-foreground">Dimension:</div>
+                          <div className="font-mono text-xs">{configData.models.embedding.embedding_dim}</div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Vision Model (if configured) */}
@@ -613,32 +881,244 @@ export function SettingsModal() {
                   </div>
                 )}
 
-                {/* Reranker (if configured) */}
-                {configData.models.reranker && configData.models.reranker.enabled && (
+                {/* Reranker */}
+                {showModelEditor || (configData.models.reranker && configData.models.reranker.enabled) ? (
                   <div className="rounded-lg border p-3 space-y-2">
                     <h4 className="text-sm font-medium">Reranker</h4>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="text-muted-foreground">Provider:</div>
-                      <div className="font-mono text-xs">{configData.models.reranker.provider}</div>
-
-                      {configData.models.reranker.model_name && (
-                        <>
-                          <div className="text-muted-foreground">Model:</div>
-                          <div className="font-mono text-xs">{configData.models.reranker.model_name}</div>
-                        </>
-                      )}
-
-                      {configData.models.reranker.model_path && (
-                        <>
-                          <div className="text-muted-foreground">Model Path:</div>
-                          <div className="font-mono text-xs truncate" title={configData.models.reranker.model_path}>
-                            {configData.models.reranker.model_path}
+                    {showModelEditor ? (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex items-center justify-between rounded-md border p-3 col-span-2">
+                          <div className="space-y-1">
+                            <Label>Enable Reranker</Label>
+                            <div className="text-xs text-muted-foreground">Applies to retrieval ranking</div>
                           </div>
-                        </>
-                      )}
-                    </div>
+                          <Switch
+                            checked={editorState.reranker.enabled}
+                            onCheckedChange={(checked) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, enabled: checked } }))
+                            }
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Provider</Label>
+                          <Select
+                            value={editorState.reranker.provider}
+                            onValueChange={(v) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, provider: v } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select provider" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="local">local</SelectItem>
+                              <SelectItem value="local_gpu">local_gpu</SelectItem>
+                              <SelectItem value="api">api</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Model Name</Label>
+                          <Input
+                            value={editorState.reranker.model_name}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, model_name: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                            placeholder="e.g. Qwen/Qwen3-VL-Reranker-2B"
+                          />
+                        </div>
+
+                        <div className="space-y-2 col-span-2">
+                          <Label>Model Path (optional)</Label>
+                          <Input
+                            value={editorState.reranker.model_path}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, model_path: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                            placeholder="/path/to/local/model (optional)"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Device</Label>
+                          <Input
+                            value={editorState.reranker.device}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, device: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                            placeholder="cuda:0 / cpu"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>DType</Label>
+                          <Input
+                            value={editorState.reranker.dtype}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, dtype: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                            placeholder="float16"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Attention</Label>
+                          <Input
+                            value={editorState.reranker.attn_implementation}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, attn_implementation: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                            placeholder="sdpa / eager"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Batch Size</Label>
+                          <Input
+                            type="number"
+                            value={editorState.reranker.batch_size}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, batch_size: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Max Length</Label>
+                          <Input
+                            type="number"
+                            value={editorState.reranker.max_length}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, max_length: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Min Image Tokens</Label>
+                          <Input
+                            type="number"
+                            value={editorState.reranker.min_image_tokens}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, min_image_tokens: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Max Image Tokens</Label>
+                          <Input
+                            type="number"
+                            value={editorState.reranker.max_image_tokens}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, max_image_tokens: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                          />
+                        </div>
+
+                        <div className="space-y-2 col-span-2">
+                          <Label>Base URL (optional)</Label>
+                          <Input
+                            value={editorState.reranker.base_url}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, base_url: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                            placeholder="(optional)"
+                          />
+                        </div>
+
+                        <div className="space-y-2 col-span-2">
+                          <Label>API Key (leave blank to keep)</Label>
+                          <Input
+                            type="password"
+                            value={editorState.reranker.api_key}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, api_key: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between rounded-md border p-3 col-span-2">
+                          <div className="space-y-1">
+                            <Label>Allow Image URLs</Label>
+                            <div className="text-xs text-muted-foreground">Security risk: keep off unless trusted</div>
+                          </div>
+                          <Switch
+                            checked={editorState.reranker.allow_image_urls}
+                            onCheckedChange={(checked) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, allow_image_urls: checked } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                          />
+                        </div>
+
+                        <div className="space-y-2 col-span-2">
+                          <Label>Instruction (optional)</Label>
+                          <Textarea
+                            value={editorState.reranker.instruction}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, instruction: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                            placeholder="(optional)"
+                            className="min-h-[80px]"
+                          />
+                        </div>
+
+                        <div className="space-y-2 col-span-2">
+                          <Label>System Prompt (optional)</Label>
+                          <Textarea
+                            value={editorState.reranker.system_prompt}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, reranker: { ...s.reranker, system_prompt: e.target.value } }))
+                            }
+                            disabled={!editorState.reranker.enabled}
+                            placeholder="(optional)"
+                            className="min-h-[80px]"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="text-muted-foreground">Provider:</div>
+                        <div className="font-mono text-xs">{configData.models.reranker?.provider}</div>
+
+                        {configData.models.reranker?.model_name ? (
+                          <>
+                            <div className="text-muted-foreground">Model:</div>
+                            <div className="font-mono text-xs">{configData.models.reranker.model_name}</div>
+                          </>
+                        ) : null}
+
+                        {configData.models.reranker?.model_path ? (
+                          <>
+                            <div className="text-muted-foreground">Model Path:</div>
+                            <div
+                              className="font-mono text-xs truncate"
+                              title={configData.models.reranker.model_path}
+                            >
+                              {configData.models.reranker.model_path}
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
-                )}
+                ) : null}
 
                 {/* Storage Configuration */}
                 <div className="rounded-lg border p-3 space-y-2">
@@ -713,8 +1193,8 @@ export function SettingsModal() {
             ) : null}
           </section>
 
-          {/* Model Editor Section */}
-          {showModelEditor && (
+          {/* Model Editor Section (deprecated: editing is inline above) */}
+          {showLegacyModelEditor && showModelEditor && (
             <>
               <Separator />
               <section className="space-y-3">

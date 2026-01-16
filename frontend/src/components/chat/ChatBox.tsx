@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Message } from './Message';
-import { EmptyState } from '../common/EmptyState';
 import { Button } from '@/components/ui/button';
 import type { ChatMessage } from '@/types/chat';
 
@@ -62,39 +61,22 @@ export function ChatBox({ messages, isLoading }: ChatBoxProps) {
     handleScroll();
   }, [handleScroll]);
 
-  if (messages.length === 0 && !isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <EmptyState
-          title="No messages yet"
-          description="Start a conversation by typing a message below"
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="h-full relative">
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="h-full overflow-y-auto space-y-1 px-2 scrollbar-thin"
+        className="h-full overflow-y-auto scrollbar-thin"
       >
-        {messages.map((message, index) => (
-          <Message key={message.id || index} message={message} />
-        ))}
-        {isLoading && (
-          <div className="flex gap-3 py-4 px-4">
-            <div className="flex-shrink-0 h-8 w-8 rounded-full bg-purple-600 flex items-center justify-center">
-              <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            </div>
-            <div className="flex-1">
-              <div className="text-sm font-semibold mb-2">Assistant</div>
-              <div className="text-sm text-muted-foreground">Thinking...</div>
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+        <div className="mx-auto w-full max-w-3xl px-3 sm:px-6 py-6 space-y-6">
+          {messages.map((message, index) => (
+            <Message key={message.id || index} message={message} />
+          ))}
+          {isLoading ? (
+            <div className="text-sm text-muted-foreground">Loading…</div>
+          ) : null}
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {!isAtBottom && (

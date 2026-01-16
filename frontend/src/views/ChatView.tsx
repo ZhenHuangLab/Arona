@@ -1,9 +1,8 @@
-import React from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { MessageSquare, Plus, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type FC } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { MessageSquare, Loader2 } from 'lucide-react';
 import { ChatBox, InputBar } from '@/components/chat';
 import { useChat, useChatSession, useCreateSession } from '@/hooks';
-import { Button } from '@/components/ui/button';
 
 /**
  * Chat View
@@ -25,9 +24,13 @@ import { Button } from '@/components/ui/button';
  * - Adaptive padding and spacing
  * - Touch-friendly button sizes
  */
-export const ChatView: React.FC = () => {
+export const ChatView: FC = () => {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const [isStartingSession, setIsStartingSession] = useState(false);
+  const hasSentInitialMessageRef = useRef(false);
 
   // Fetch session details if we have an ID
   const { data: session, isLoading: isLoadingSession } = useChatSession(sessionId);
@@ -38,47 +41,60 @@ export const ChatView: React.FC = () => {
   // Create session mutation
   const createSessionMutation = useCreateSession();
 
-  const handleSendMessage = (message: string, imageFile?: File | null) => {
+  const handleSendMessage = useCallback((message: string, imageFile?: File | null) => {
     // Backend currently enforces hybrid mode; keep UI simple and consistent.
     sendMessage(message, 'hybrid', imageFile);
-  };
+  }, [sendMessage]);
 
-  const handleCreateSession = async () => {
+  const handleStartNewSessionFromDraft = async (message: string, imageFile?: File | null) => {
+    if (isStartingSession || createSessionMutation.isPending) return;
+
+    setIsStartingSession(true);
     try {
-      const newSession = await createSessionMutation.mutateAsync(undefined);
-      navigate(`/chat/${newSession.id}`);
+      const title = message.trim().slice(0, 60) || undefined;
+      const newSession = await createSessionMutation.mutateAsync(title);
+      navigate(`/chat/${newSession.id}`, {
+        state: { initialMessage: message, initialImageFile: imageFile ?? null },
+      });
     } catch {
       // Error already handled by mutation
+    } finally {
+      setIsStartingSession(false);
     }
   };
 
-  // Empty state: no session selected
+  // If we navigated from /chat (draft) with an initial message, send it once.
+  const navigationState = (location.state || null) as
+    | { initialMessage?: string; initialImageFile?: File | null }
+    | null;
+  const initialMessage = navigationState?.initialMessage;
+  const initialImageFile = navigationState?.initialImageFile ?? null;
+
+  useEffect(() => {
+    if (!sessionId) return;
+    if (!initialMessage) return;
+    if (hasSentInitialMessageRef.current) return;
+
+    hasSentInitialMessageRef.current = true;
+    // Clear history state so refresh/back-forward doesn't resend.
+    navigate(`/chat/${sessionId}`, { replace: true, state: null });
+    handleSendMessage(initialMessage, initialImageFile);
+  }, [sessionId, initialMessage, initialImageFile, navigate, handleSendMessage]);
+
+  // Draft view: no session selected yet (no session is created until first send).
   if (!sessionId) {
     return (
-      <div className="h-full flex flex-col items-center justify-center bg-gradient-to-b from-background to-muted/20 p-4">
-        <div className="text-center max-w-md">
-          <MessageSquare className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">Welcome to Arona Chat</h1>
-          <p className="text-muted-foreground mb-6">
-            Start a new conversation to ask questions about your documents.
-          </p>
-          <Button
-            onClick={handleCreateSession}
-            disabled={createSessionMutation.isPending}
-            size="lg"
-          >
-            {createSessionMutation.isPending ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Creating...
-              </>
-            ) : (
-              <>
-                <Plus className="h-4 w-4 mr-2" />
-                New Chat
-              </>
-            )}
-          </Button>
+      <div className="h-full flex items-center justify-center bg-gradient-to-b from-background to-muted/20">
+        <div className="w-full max-w-3xl px-4">
+          <div className="flex flex-col items-center gap-6">
+            <MessageSquare className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
+            <InputBar
+              placement="centered"
+              onSend={handleStartNewSessionFromDraft}
+              disabled={false}
+              isStarting={isStartingSession || createSessionMutation.isPending}
+            />
+          </div>
         </div>
       </div>
     );
@@ -102,17 +118,11 @@ export const ChatView: React.FC = () => {
         aria-label="Chat conversation"
       >
         {/* Chat Header */}
-        <div className="border-b bg-muted/50 px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between shrink-0">
+        <div className="border-b bg-muted/40 px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium truncate max-w-[200px] sm:max-w-none">
               {session?.title || 'Chat'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" aria-hidden="true" />
-            <span className="text-xs sm:text-sm text-muted-foreground">
-              {messages.length} {messages.length === 1 ? 'message' : 'messages'}
             </span>
           </div>
         </div>
@@ -126,7 +136,7 @@ export const ChatView: React.FC = () => {
         <InputBar
           onSend={handleSendMessage}
           onStop={stopGenerating}
-          disabled={!sessionId}
+          disabled={false}
           isLoading={isSending}
         />
       </div>
