@@ -6,9 +6,10 @@
  */
 
 import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
+import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '@/store/chatStore';
-import { createTurn } from '@/api/chat';
+import { createTurn, createTurnStream } from '@/api/chat';
 import { toast } from '@/lib/toast';
 import { APIException } from '@/types';
 import type { QueryMode, MessageListResponse, TurnRequest } from '@/types/chat';
@@ -34,6 +35,8 @@ export function useChat(sessionId?: string) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { currentMode, setMode } = useChatStore();
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
 
   // Fetch messages from backend via React Query
   const {
@@ -62,7 +65,13 @@ export function useChat(sessionId?: string) {
         throw new Error('No active session');
       }
 
+      // Cancel any previous in-flight stream (safety)
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+
       const request_id = crypto.randomUUID();
+      activeRequestIdRef.current = request_id;
+
       const displayMessage = imageFile
         ? `${message}\n[Attached image: ${imageFile.name}]`
         : message;
@@ -131,15 +140,65 @@ export function useChat(sessionId?: string) {
         }
       );
 
-      // Call the turn API
-      const response = await createTurn(sessionId, {
-        request_id,
-        query: message,
-        mode,
-        multimodal_content,
-      });
+      // Call the streaming turn API (SSE) and update the assistant placeholder progressively.
+      let assistantText = '';
+      let response: Awaited<ReturnType<typeof createTurn>> | null = null;
+
+      try {
+        for await (const event of createTurnStream(sessionId, {
+          request_id,
+          query: message,
+          mode,
+          multimodal_content,
+        }, { signal: abortControllerRef.current.signal })) {
+          if (event.type === 'delta') {
+            assistantText += event.delta || '';
+
+            // Update assistant placeholder message content in React Query cache.
+            queryClient.setQueryData<InfiniteData<MessageListResponse>>(
+              chatMessagesKeys.list(sessionId),
+              (old) => {
+                if (!old || old.pages.length === 0) return old;
+
+                const newPages = old.pages.slice();
+                const firstPage = newPages[0];
+                newPages[0] = {
+                  ...firstPage,
+                  messages: firstPage.messages.map((m) =>
+                    m.id === assistantTempId ? { ...m, content: assistantText } : m
+                  ),
+                };
+
+                return { ...old, pages: newPages };
+              }
+            );
+          } else if (event.type === 'final') {
+            response = event.response;
+          }
+        }
+      } catch (error) {
+        // Fallback to non-streaming endpoint if the streaming route is unavailable.
+        if (error instanceof APIException && (error.status === 404 || error.status === 405)) {
+          response = await createTurn(sessionId, {
+            request_id,
+            query: message,
+            mode,
+            multimodal_content,
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      if (!response) {
+        throw new Error('Streaming ended without final response');
+      }
 
       return { response, request_id, sessionId };
+    },
+    onSettled: () => {
+      abortControllerRef.current = null;
+      activeRequestIdRef.current = null;
     },
     onSuccess: ({ response, request_id, sessionId: sid }) => {
       // Replace placeholder messages with real ones from backend
@@ -189,6 +248,36 @@ export function useChat(sessionId?: string) {
     onError: (error: Error) => {
       const sid = sessionId;
       if (!sid) return;
+
+      // AbortController cancellation: keep whatever has been streamed so far.
+      if ((error as { name?: string }).name === 'AbortError') {
+        const requestId = activeRequestIdRef.current;
+        if (requestId) {
+          queryClient.setQueryData<InfiniteData<MessageListResponse>>(
+            chatMessagesKeys.list(sid),
+            (old) => {
+              if (!old) return old;
+              const newPages = old.pages.map((page) => ({
+                ...page,
+                messages: page.messages.map((m) => {
+                  if (m.metadata?.request_id !== requestId) return m;
+                  return {
+                    ...m,
+                    metadata: {
+                      ...(m.metadata || {}),
+                      pending: false,
+                      cancelled: true,
+                    },
+                  };
+                }),
+              }));
+              return { ...old, pages: newPages };
+            }
+          );
+        }
+        toast.info('Stopped', 'Generation cancelled.');
+        return;
+      }
 
       // Handle specific error cases
       if (error instanceof APIException) {
@@ -244,12 +333,20 @@ export function useChat(sessionId?: string) {
     setMode(mode);
   };
 
+  /**
+   * Stop an in-flight streaming request (best-effort).
+   */
+  const stopGenerating = () => {
+    abortControllerRef.current?.abort();
+  };
+
   return {
     messages,
     isLoadingMessages,
     currentMode,
     sendMessage,
     changeMode,
+    stopGenerating,
     isSending: sendMessageMutation.isPending,
     // Pagination for loading older messages
     fetchNextPage,

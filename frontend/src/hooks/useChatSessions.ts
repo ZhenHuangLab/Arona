@@ -14,6 +14,7 @@ import {
 } from '@tanstack/react-query';
 import {
   listSessions,
+  searchSessions,
   createSession,
   updateSession,
   deleteSession,
@@ -67,10 +68,18 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
   >({
     queryKey: chatSessionsKeys.list({ limit, search }),
     queryFn: async ({ pageParam }) => {
+      const trimmed = search.trim();
+      if (trimmed) {
+        return searchSessions({
+          q: trimmed,
+          limit,
+          cursor: pageParam,
+        });
+      }
+
       return listSessions({
         limit,
         cursor: pageParam,
-        q: search || undefined,
       });
     },
     initialPageParam: null,

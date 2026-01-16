@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import tempfile
 import uuid
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
@@ -52,6 +53,22 @@ class MockRAGService:
         if self.should_fail:
             raise RuntimeError(self.fail_message)
         return self.response
+
+    async def query_stream(
+        self,
+        query: str,
+        mode: str = "hybrid",
+        **kwargs: Any,
+    ):
+        """Mock streaming query method."""
+        self.call_count += 1
+        self.last_query = query
+        if self.should_fail:
+            raise RuntimeError(self.fail_message)
+
+        parts = [self.response[i : i + 5] for i in range(0, len(self.response), 5)]
+        for part in parts:
+            yield part
 
     async def query_with_multimodal(
         self,
@@ -220,6 +237,39 @@ class TestListSessions:
         response = client.get("/api/chat/sessions?cursor=invalid-base64")
         assert response.status_code == 400
         data = response.json()
+        assert data["detail"]["code"] == "INVALID_CURSOR"
+
+
+class TestSearchSessions:
+    """Tests for GET /search."""
+
+    def test_search_matches_message_content(self, client: TestClient):
+        """Search should match sessions by chat message content (not only title)."""
+        # Create two sessions with non-default titles to avoid auto-title updates.
+        s1 = client.post("/api/chat/sessions", json={"title": "Session One"}).json()
+        s2 = client.post("/api/chat/sessions", json={"title": "Session Two"}).json()
+
+        # Create turns so messages exist in each session.
+        client.post(
+            f"/api/chat/sessions/{s1['id']}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "needle term in message"},
+        )
+        client.post(
+            f"/api/chat/sessions/{s2['id']}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "haystack term"},
+        )
+
+        resp = client.get("/api/chat/search?q=needle")
+        assert resp.status_code == 200
+        data = resp.json()
+        ids = [s["id"] for s in data["sessions"]]
+        assert s1["id"] in ids
+        assert s2["id"] not in ids
+
+    def test_search_invalid_cursor(self, client: TestClient):
+        resp = client.get("/api/chat/search?q=test&cursor=invalid-base64")
+        assert resp.status_code == 400
+        data = resp.json()
         assert data["detail"]["code"] == "INVALID_CURSOR"
 
 
@@ -628,6 +678,44 @@ class TestTurnMultimodal:
         )
         assert resp.status_code == 400
         assert resp.json()["detail"]["code"] == "MULTIMODAL_INVALID"
+
+
+class TestTurnStreamAPI:
+    """Tests for POST /sessions/{session_id}/turn:stream."""
+
+    def test_turn_stream_success(self, client: TestClient, mock_rag_service: MockRAGService):
+        create_resp = client.post("/api/chat/sessions", json={"title": "Stream Test"})
+        session_id = create_resp.json()["id"]
+
+        request_id = str(uuid.uuid4())
+        deltas: list[str] = []
+        final: dict[str, Any] | None = None
+
+        with client.stream(
+            "POST",
+            f"/api/chat/sessions/{session_id}/turn:stream",
+            json={"request_id": request_id, "query": "Stream this"},
+        ) as resp:
+            assert resp.status_code == 200
+            assert resp.headers["content-type"].startswith("text/event-stream")
+
+            for raw_line in resp.iter_lines():
+                if not raw_line:
+                    continue
+                line = raw_line.decode("utf-8") if isinstance(raw_line, (bytes, bytearray)) else raw_line
+                assert line.startswith("data: ")
+                payload = json.loads(line[len("data: ") :])
+                if payload.get("type") == "delta":
+                    deltas.append(payload.get("delta", ""))
+                elif payload.get("type") == "final":
+                    final = payload.get("response")
+
+        assert final is not None
+        assert final["turn_id"] == request_id
+        assert final["status"] == "completed"
+        assert final["assistant_message"]["role"] == "assistant"
+        assert final["assistant_message"]["content"] == "".join(deltas)
+        assert mock_rag_service.call_count == 1
 
 
 # =============================================================================

@@ -10,7 +10,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncIterator
 
 from raganything import RAGAnything, RAGAnythingConfig
 
@@ -232,6 +232,34 @@ class RAGService:
             except Exception as e:
                 logger.error(f"Query failed: {e}", exc_info=True)
                 raise
+
+    async def query_stream(
+        self,
+        query: str,
+        mode: str = "hybrid",
+        **kwargs,
+    ) -> AsyncIterator[str]:
+        """
+        Execute a RAG query with streaming output (best-effort).
+
+        Depending on the configured provider + LightRAG integration, this may
+        yield incremental chunks or a single full response.
+        """
+        async with self._operation():
+            rag = await self.get_rag_instance()
+
+            logger.info(f"Executing streaming query: {query[:100]}... (mode={mode})")
+
+            # RAGAnything wraps LightRAG. LightRAG supports stream=True by returning
+            # an AsyncIterator[str]. Some providers may only yield once.
+            result = await rag.aquery(query, mode=mode, stream=True, **kwargs)
+
+            if isinstance(result, str):
+                yield result
+                return
+
+            async for chunk in result:
+                yield str(chunk)
     
     async def query_with_multimodal(
         self,

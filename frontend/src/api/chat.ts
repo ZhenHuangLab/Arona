@@ -96,6 +96,28 @@ export async function listSessions(params: {
 }
 
 /**
+ * Search chat sessions by title or message content.
+ */
+export async function searchSessions(params: {
+  q: string;
+  limit?: number;
+  cursor?: string | null;
+}): Promise<SessionListResponse> {
+  try {
+    const response = await apiClient.get<SessionListResponse>('/api/chat/search', {
+      params: {
+        q: params.q,
+        limit: params.limit ?? 20,
+        cursor: params.cursor || undefined,
+      },
+    });
+    return response.data;
+  } catch (error) {
+    handleAPIError(error);
+  }
+}
+
+/**
  * Get a single session by ID.
  */
 export async function getSession(sessionId: string): Promise<ChatSession> {
@@ -189,5 +211,83 @@ export async function createTurn(
     return response.data;
   } catch (error) {
     handleAPIError(error);
+  }
+}
+
+// =============================================================================
+// Turn (Streaming)
+// =============================================================================
+
+export type TurnStreamEvent =
+  | { type: 'delta'; delta: string }
+  | { type: 'final'; response: TurnResponse };
+
+/**
+ * Create a chat turn with SSE streaming (user message -> assistant response).
+ *
+ * Server emits `text/event-stream` with JSON `data:` lines:
+ * - {"type":"delta","delta":"..."}
+ * - {"type":"final","response":{...TurnResponse...}}
+ */
+export async function* createTurnStream(
+  sessionId: string,
+  req: TurnRequest,
+  options: { signal?: AbortSignal } = {}
+): AsyncGenerator<TurnStreamEvent> {
+  const baseURL = (apiClient.defaults.baseURL ?? '').replace(/\/$/, '');
+  const url = `${baseURL}/api/chat/sessions/${sessionId}/turn:stream`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+    signal: options.signal,
+  });
+
+  if (!resp.ok) {
+    // Try to parse backend error shape {detail:{code,message,...}}.
+    let message = `${resp.status} ${resp.statusText}`.trim();
+    try {
+      const data = (await resp.json()) as unknown;
+      message = parseErrorDetail(data);
+    } catch {
+      // ignore
+    }
+    throw new APIException(resp.status, message);
+  }
+
+  if (!resp.body) {
+    throw new APIException(0, 'Streaming not supported by browser');
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by a blank line.
+    while (true) {
+      const sepIndex = buffer.indexOf('\n\n');
+      if (sepIndex === -1) break;
+
+      const rawEvent = buffer.slice(0, sepIndex);
+      buffer = buffer.slice(sepIndex + 2);
+
+      const lines = rawEvent.split(/\r?\n/);
+      const dataLines = lines
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice('data:'.length).trimStart());
+
+      const data = dataLines.join('\n').trim();
+      if (!data) continue;
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const event = JSON.parse(data);
+      yield event as TurnStreamEvent;
+    }
   }
 }

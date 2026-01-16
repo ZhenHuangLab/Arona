@@ -12,8 +12,10 @@ Key constraints:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
+import json
 import logging
 import time
 import sqlite3
@@ -21,6 +23,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 
 from backend.models.chat import (
     ChatMessage,
@@ -151,6 +154,11 @@ def _compute_turn_payload_hash(
     return compute_payload_hash(payload)
 
 
+def _sse(data: dict[str, Any]) -> str:
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return f"data: {payload}\n\n"
+
+
 # =============================================================================
 # Sessions
 # =============================================================================
@@ -199,6 +207,40 @@ async def list_sessions(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=_make_error("STORAGE_ERROR", "Failed to list sessions"),
+        ) from exc
+
+
+@router.get("/search", response_model=SessionListResponse)
+async def search_sessions(
+    request: Request,
+    q: str = Query(..., min_length=1, description="Search query (title or message content)"),
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: Optional[str] = Query(default=None),
+) -> SessionListResponse:
+    """
+    Search chat sessions by title or message content.
+
+    Implementation uses SQLite FTS5 when available; falls back to LIKE.
+    """
+    store = _get_chat_store(request)
+    try:
+        return store.search_sessions(q=q, limit=limit, cursor=cursor)
+    except ValueError as exc:
+        msg = str(exc)
+        if "INVALID_CURSOR" in msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=_make_error("INVALID_CURSOR", "Invalid or malformed cursor"),
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_make_error("BAD_REQUEST", msg),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to search sessions: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_make_error("STORAGE_ERROR", "Failed to search sessions"),
         ) from exc
 
 
@@ -548,3 +590,328 @@ async def create_turn(
             detail=_make_error("STORAGE_ERROR", "Failed to write assistant message"),
         ) from exc
 
+
+@router.post("/sessions/{session_id}/turn:stream")
+async def create_turn_stream(
+    request: Request,
+    session_id: str,
+    body: TurnRequest,
+) -> StreamingResponse:
+    """
+    Execute a chat turn with SSE streaming output.
+
+    Event schema (SSE `data:` JSON):
+    - {"type": "delta", "delta": "<text chunk>"}
+    - {"type": "final", "response": <TurnResponse JSON>}
+
+    Note: If the underlying provider doesn't support true streaming, this may
+    yield a single delta containing the full response.
+    """
+    store = _get_chat_store(request)
+    rag_service = getattr(request.app.state, "rag_service", None)
+
+    request_id = (body.request_id or "").strip()
+    if not request_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_make_error("MISSING_REQUEST_ID", "request_id is required"),
+        )
+
+    query = (body.query or "").strip()
+    if not query:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_make_error("EMPTY_QUERY", "Query cannot be empty"),
+        )
+
+    session = store.get_session(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_make_error("SESSION_NOT_FOUND", f"Session {session_id} not found"),
+        )
+
+    # User requirement override: ignore per-request mode and always use hybrid.
+    mode = DEFAULT_CHAT_MODE
+
+    # Multimodal: decode + persist image, and use img sha for idempotency hash.
+    img_path: Optional[str] = None
+    img_sha16: Optional[str] = None
+    if body.multimodal_content and body.multimodal_content.img_base64:
+        upload_dir = _get_upload_dir(request)
+        try:
+            image_bytes, ext = _decode_image_base64(img_base64=body.multimodal_content.img_base64)
+            img_path, img_sha16 = _persist_query_image_bytes(
+                image_bytes=image_bytes, upload_dir=upload_dir, ext=ext
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=_make_error("MULTIMODAL_INVALID", str(exc)),
+            ) from exc
+
+    payload_hash = _compute_turn_payload_hash(body=body, mode=mode, image_sha16=img_sha16)
+
+    existing = store.get_turn(request_id)
+    if existing is not None:
+        if existing.payload_hash != payload_hash:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_make_error(
+                    "IDEMPOTENCY_CONFLICT",
+                    "request_id exists but payload differs",
+                    extra={
+                        "existing_status": existing.status.value,
+                        "expected_hash": existing.payload_hash,
+                        "received_hash": payload_hash,
+                    },
+                ),
+            )
+
+        if existing.status == TurnStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_make_error(
+                    "IDEMPOTENCY_CONFLICT",
+                    "Turn is currently in progress",
+                    extra={"existing_status": existing.status.value},
+                ),
+            )
+
+        user_message = store.get_message(existing.user_message_id) if existing.user_message_id else None
+        assistant_message = (
+            store.get_message(existing.assistant_message_id) if existing.assistant_message_id else None
+        )
+
+        if user_message is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=_make_error(
+                    "STORAGE_ERROR",
+                    "Turn record exists but referenced user message is missing",
+                    extra={"turn_id": request_id},
+                ),
+            )
+
+        cached = TurnResponse(
+            turn_id=request_id,
+            status=existing.status,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            error=(
+                {"code": "LLM_ERROR", "message": existing.error_detail or "Unknown error"}
+                if existing.status == TurnStatus.FAILED
+                else None
+            ),
+        )
+
+        async def _replay() -> Any:
+            if assistant_message is not None and assistant_message.content:
+                yield _sse({"type": "delta", "delta": assistant_message.content})
+            yield _sse({"type": "final", "response": cached.model_dump()})
+
+        return StreamingResponse(
+            _replay(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Create turn row (pending). Handle concurrent duplicate creation gracefully.
+    try:
+        store.create_turn(request_id, session_id, payload_hash)
+    except sqlite3.IntegrityError:
+        existing = store.get_turn(request_id)
+        if existing is None:
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_make_error(
+                "IDEMPOTENCY_CONFLICT",
+                "Turn was created concurrently",
+                extra={"existing_status": existing.status.value},
+            ),
+        )
+
+    user_metadata: dict[str, Any] = {"mode": mode, "request_id": request_id}
+    if img_path:
+        user_metadata["img_path"] = img_path
+        if body.multimodal_content and body.multimodal_content.img_mime_type:
+            user_metadata["img_mime_type"] = body.multimodal_content.img_mime_type
+
+    # Write user message (short transaction).
+    try:
+        user_message = store.append_message(
+            session_id=session_id,
+            role="user",
+            content=query,
+            metadata=user_metadata,
+        )
+        store.update_turn_user_message(request_id, user_message.id)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to write user message: %s", exc, exc_info=True)
+        try:
+            store.fail_turn(request_id, f"Failed to write user message: {exc}")
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to mark turn failed after write-user error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_make_error("STORAGE_ERROR", "Failed to write user message"),
+        ) from exc
+
+    # Assemble history outside of any DB transaction.
+    try:
+        recent = store.get_recent_messages(
+            session_id=session_id,
+            limit=body.history_limit,
+            max_tokens=body.max_history_tokens,
+        )
+        conversation_history = [
+            {"role": msg.role.value, "content": msg.content}
+            for msg in recent
+            if msg.id != user_message.id
+        ]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load history: %s", exc)
+        conversation_history = []
+
+    kwargs: dict[str, Any] = {}
+    if body.max_tokens is not None:
+        kwargs["max_tokens"] = body.max_tokens
+    if body.temperature is not None:
+        kwargs["temperature"] = body.temperature
+    if conversation_history:
+        kwargs["conversation_history"] = conversation_history
+
+    async def _run() -> Any:
+        assistant_parts: list[str] = []
+        llm_error: Optional[str] = None
+        cancelled = False
+
+        try:
+            if rag_service is None:
+                llm_error = "RAG service not available"
+            elif img_path and hasattr(rag_service, "query_with_multimodal"):
+                # Multimodal streaming is not guaranteed; fall back to one-shot.
+                assistant_content = await rag_service.query_with_multimodal(
+                    query=query,
+                    multimodal_content=[{"type": "image", "img_path": img_path}],
+                    mode=mode,
+                    **kwargs,
+                )
+                if isinstance(assistant_content, str) and assistant_content:
+                    assistant_parts.append(assistant_content)
+                    yield _sse({"type": "delta", "delta": assistant_content})
+                else:
+                    llm_error = "Query pipeline returned no response"
+            else:
+                # Prefer a dedicated streaming API if present; otherwise try lightrag stream=True.
+                if hasattr(rag_service, "query_stream"):
+                    stream_iter = rag_service.query_stream(query=query, mode=mode, **kwargs)
+                else:
+                    stream_iter = None
+
+                if stream_iter is None:
+                    assistant_content = await rag_service.query(query=query, mode=mode, **kwargs)
+                    if isinstance(assistant_content, str) and assistant_content:
+                        assistant_parts.append(assistant_content)
+                        yield _sse({"type": "delta", "delta": assistant_content})
+                    else:
+                        llm_error = "Query pipeline returned no response"
+                else:
+                    async for chunk in stream_iter:
+                        if await request.is_disconnected():
+                            llm_error = "Client disconnected"
+                            cancelled = True
+                            break
+                        text = str(chunk or "")
+                        if not text:
+                            continue
+                        assistant_parts.append(text)
+                        yield _sse({"type": "delta", "delta": text})
+
+        except asyncio.CancelledError:
+            llm_error = "Cancelled"
+            cancelled = True
+        except Exception as exc:  # noqa: BLE001
+            logger.error("RAG service stream failed: %s", exc, exc_info=True)
+            llm_error = str(exc)
+
+        assistant_content = "".join(assistant_parts) if assistant_parts else None
+
+        if cancelled:
+            error_detail = llm_error or "Cancelled"
+            try:
+                store.fail_turn(request_id, error_detail)
+            except Exception:  # noqa: BLE001
+                logger.warning("Failed to mark turn failed after cancellation")
+
+            final = TurnResponse(
+                turn_id=request_id,
+                status=TurnStatus.FAILED,
+                user_message=user_message,
+                assistant_message=None,
+                error={"code": "LLM_ERROR", "message": error_detail},
+            )
+            yield _sse({"type": "final", "response": final.model_dump()})
+            return
+
+        if not isinstance(assistant_content, str) or assistant_content is None:
+            error_detail = llm_error or "Query pipeline returned no response"
+            try:
+                store.fail_turn(request_id, error_detail)
+            except Exception:  # noqa: BLE001
+                logger.warning("Failed to mark turn failed after LLM error")
+
+            final = TurnResponse(
+                turn_id=request_id,
+                status=TurnStatus.FAILED,
+                user_message=user_message,
+                assistant_message=None,
+                error={"code": "LLM_ERROR", "message": error_detail},
+            )
+            yield _sse({"type": "final", "response": final.model_dump()})
+            return
+
+        # Write assistant message + complete turn (short transaction).
+        try:
+            assistant_message = store.append_message(
+                session_id=session_id,
+                role="assistant",
+                content=assistant_content,
+                metadata={"mode": mode, "request_id": request_id},
+            )
+            store.complete_turn(request_id, user_message.id, assistant_message.id)
+
+            # Update title only when still default (do not override user rename).
+            if session.title == "New Chat":
+                store.update_session(session_id, title=query)
+
+            final = TurnResponse(
+                turn_id=request_id,
+                status=TurnStatus.COMPLETED,
+                user_message=user_message,
+                assistant_message=assistant_message,
+                error=None,
+            )
+            yield _sse({"type": "final", "response": final.model_dump()})
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to persist assistant message (stream): %s", exc, exc_info=True)
+            try:
+                store.fail_turn(request_id, f"Failed to write assistant message: {exc}")
+            except Exception:  # noqa: BLE001
+                logger.warning("Failed to mark turn failed after write-assistant error")
+
+            final = TurnResponse(
+                turn_id=request_id,
+                status=TurnStatus.FAILED,
+                user_message=user_message,
+                assistant_message=None,
+                error={"code": "STORAGE_ERROR", "message": "Failed to write assistant message"},
+            )
+            yield _sse({"type": "final", "response": final.model_dump()})
+
+    return StreamingResponse(
+        _run(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

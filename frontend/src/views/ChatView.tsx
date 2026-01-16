@@ -34,7 +34,8 @@ export const ChatView: React.FC = () => {
   const { data: session, isLoading: isLoadingSession } = useChatSession(sessionId);
 
   // Chat hook with session context
-  const { messages, currentMode, sendMessage, isSending, isLoadingMessages } = useChat(sessionId);
+  const { messages, currentMode, sendMessage, stopGenerating, isSending, isLoadingMessages } =
+    useChat(sessionId);
 
   // Create session mutation
   const createSessionMutation = useCreateSession();
@@ -125,6 +126,7 @@ export const ChatView: React.FC = () => {
         {/* Input Area */}
         <InputBar
           onSend={handleSendMessage}
+          onStop={stopGenerating}
           disabled={!sessionId}
           isLoading={isSending}
           defaultMode={currentMode}

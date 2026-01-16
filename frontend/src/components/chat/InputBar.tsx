@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Send, Loader2, ImagePlus, X } from 'lucide-react';
+import { Send, ImagePlus, X, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ModeSelector } from './ModeSelector';
@@ -8,6 +8,7 @@ import type { QueryMode } from '@/types/chat';
 
 interface InputBarProps {
   onSend: (message: string, mode: QueryMode, imageFile?: File | null) => void;
+  onStop?: () => void;
   disabled?: boolean;
   isLoading?: boolean;
   defaultMode?: QueryMode;
@@ -32,6 +33,7 @@ interface InputBarProps {
  */
 export function InputBar({
   onSend,
+  onStop,
   disabled = false,
   isLoading = false,
   defaultMode = 'hybrid',
@@ -51,6 +53,14 @@ export function InputBar({
       setMessage('');
       setImageFile(null);
     }
+  };
+
+  const handlePrimaryAction = () => {
+    if (isLoading) {
+      onStop?.();
+      return;
+    }
+    handleSend();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -116,18 +126,18 @@ export function InputBar({
 
         {/* Send Button - Touch-friendly size */}
         <Button
-          onClick={handleSend}
-          disabled={disabled || isLoading || (!message.trim() && !imageFile)}
+          onClick={handlePrimaryAction}
+          disabled={disabled || (isLoading ? !onStop : (!message.trim() && !imageFile))}
           size="icon"
           className="h-[60px] w-[60px] shrink-0"
-          aria-label={isLoading ? 'Sending message' : 'Send message'}
+          aria-label={isLoading ? 'Stop generating' : 'Send message'}
         >
           {isLoading ? (
-            <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+            <Square className="h-5 w-5" aria-hidden="true" />
           ) : (
             <Send className="h-5 w-5" aria-hidden="true" />
           )}
-          <span className="sr-only">{isLoading ? 'Sending...' : 'Send message'}</span>
+          <span className="sr-only">{isLoading ? 'Stop generating' : 'Send message'}</span>
         </Button>
       </div>
 

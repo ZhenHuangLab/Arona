@@ -84,6 +84,18 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+def build_fts5_query(raw_query: str) -> str:
+    """
+    Build a safe-ish FTS5 MATCH query from user input.
+
+    We quote each whitespace-separated token and join with AND to reduce
+    syntax errors from special characters.
+    """
+    tokens = [t for t in (raw_query or "").strip().split() if t]
+    escaped = [t.replace('"', '""') for t in tokens]
+    return " AND ".join(f'"{t}"' for t in escaped)
+
+
 # =============================================================================
 # ChatStore Class
 # =============================================================================
@@ -193,6 +205,55 @@ class ChatStore:
                 CREATE INDEX IF NOT EXISTS idx_messages_session_created
                 ON chat_messages(session_id, created_at DESC)
             """)
+
+            # Optional: FTS5 virtual table for message content search (Phase P7).
+            #
+            # Notes:
+            # - Some SQLite builds may not include FTS5; this is best-effort.
+            # - We keep a separate FTS table synced via triggers.
+            try:
+                conn.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS chat_messages_fts USING fts5(
+                        content,
+                        session_id UNINDEXED,
+                        message_id UNINDEXED,
+                        created_at UNINDEXED
+                    )
+                """)
+                conn.execute("""
+                    CREATE TRIGGER IF NOT EXISTS chat_messages_fts_ai
+                    AFTER INSERT ON chat_messages
+                    BEGIN
+                        INSERT INTO chat_messages_fts(rowid, content, session_id, message_id, created_at)
+                        VALUES (new.rowid, new.content, new.session_id, new.id, new.created_at);
+                    END
+                """)
+                conn.execute("""
+                    CREATE TRIGGER IF NOT EXISTS chat_messages_fts_ad
+                    AFTER DELETE ON chat_messages
+                    BEGIN
+                        DELETE FROM chat_messages_fts WHERE rowid = old.rowid;
+                    END
+                """)
+                conn.execute("""
+                    CREATE TRIGGER IF NOT EXISTS chat_messages_fts_au
+                    AFTER UPDATE ON chat_messages
+                    BEGIN
+                        DELETE FROM chat_messages_fts WHERE rowid = old.rowid;
+                        INSERT INTO chat_messages_fts(rowid, content, session_id, message_id, created_at)
+                        VALUES (new.rowid, new.content, new.session_id, new.id, new.created_at);
+                    END
+                """)
+
+                # Backfill existing rows (safe when upgrading an existing DB).
+                conn.execute("""
+                    INSERT INTO chat_messages_fts(rowid, content, session_id, message_id, created_at)
+                    SELECT rowid, content, session_id, id, created_at
+                    FROM chat_messages
+                    WHERE rowid NOT IN (SELECT rowid FROM chat_messages_fts)
+                """)
+            except sqlite3.OperationalError as e:
+                logger.info("FTS5 not available; skipping chat_messages_fts init: %s", e)
 
             # Table: chat_turns
             conn.execute("""
@@ -405,6 +466,133 @@ class ChatStore:
 
         except sqlite3.Error as e:
             logger.error(f"Failed to list sessions: {e}", exc_info=True)
+            raise
+        finally:
+            conn.close()
+
+    def search_sessions(
+        self,
+        q: str,
+        limit: int = DEFAULT_SESSIONS_LIMIT,
+        cursor: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> SessionListResponse:
+        """
+        Search sessions by title or message content.
+
+        Uses FTS5 on chat_messages content when available; falls back to LIKE.
+
+        Cursor pagination follows the same convention as list_sessions:
+        ordered by (updated_at DESC, id DESC) with cursor encoded from the last row.
+        """
+        query_text = (q or "").strip()
+        if not query_text:
+            return self.list_sessions(limit=limit, cursor=cursor, q=None, user_id=user_id)
+
+        limit = max(1, min(limit, MAX_SESSIONS_LIMIT))
+        fetch_limit = limit + 1
+
+        conn = self._get_connection()
+        try:
+            conditions = ["s.deleted_at IS NULL"]
+            params: list[Any] = []
+
+            if cursor:
+                try:
+                    cursor_ts, cursor_id = decode_cursor(cursor)
+                    conditions.append("(s.updated_at, s.id) < (?, ?)")
+                    params.extend([cursor_ts, cursor_id])
+                except ValueError as e:
+                    raise ValueError(f"INVALID_CURSOR: {e}") from e
+
+            if user_id:
+                conditions.append("s.user_id = ?")
+                params.append(user_id)
+
+            where_clause = " AND ".join(conditions)
+            like_q = f"%{query_text}%"
+
+            # Prefer FTS5 when available.
+            fts_q = build_fts5_query(query_text)
+            if not fts_q:
+                fts_q = f'"{query_text.replace(chr(34), chr(34) * 2)}"'
+
+            base_select = f"""
+                SELECT s.id, s.title, s.user_id, s.created_at, s.updated_at,
+                       s.deleted_at, s.metadata_json,
+                       (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) as message_count,
+                       (SELECT content FROM chat_messages m
+                        WHERE m.session_id = s.id
+                        ORDER BY m.created_at DESC LIMIT 1) as last_message
+                FROM chat_sessions s
+                WHERE {where_clause}
+                  AND (
+                    s.title LIKE ?
+                    OR EXISTS (
+                        SELECT 1
+                        FROM chat_messages_fts f
+                        WHERE f.session_id = s.id
+                          AND f.content MATCH ?
+                    )
+                  )
+                ORDER BY s.updated_at DESC, s.id DESC
+                LIMIT ?
+            """
+
+            try:
+                cursor_result = conn.execute(
+                    base_select,
+                    [*params, like_q, fts_q, fetch_limit],
+                )
+            except sqlite3.OperationalError:
+                # Fallback to LIKE search on chat_messages when FTS5 is unavailable.
+                fallback_select = f"""
+                    SELECT s.id, s.title, s.user_id, s.created_at, s.updated_at,
+                           s.deleted_at, s.metadata_json,
+                           (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) as message_count,
+                           (SELECT content FROM chat_messages m
+                            WHERE m.session_id = s.id
+                            ORDER BY m.created_at DESC LIMIT 1) as last_message
+                    FROM chat_sessions s
+                    WHERE {where_clause}
+                      AND (
+                        s.title LIKE ?
+                        OR EXISTS (
+                            SELECT 1
+                            FROM chat_messages m
+                            WHERE m.session_id = s.id
+                              AND m.content LIKE ?
+                        )
+                      )
+                    ORDER BY s.updated_at DESC, s.id DESC
+                    LIMIT ?
+                """
+                cursor_result = conn.execute(
+                    fallback_select,
+                    [*params, like_q, like_q, fetch_limit],
+                )
+
+            rows = cursor_result.fetchall()
+
+            has_more = len(rows) > limit
+            if has_more:
+                rows = rows[:limit]
+
+            sessions = [self._row_to_session_with_stats(row) for row in rows]
+
+            next_cursor = None
+            if has_more and sessions:
+                last = sessions[-1]
+                next_cursor = encode_cursor("updated_at", last.updated_at, last.id)
+
+            return SessionListResponse(
+                sessions=sessions,
+                next_cursor=next_cursor,
+                has_more=has_more,
+            )
+
+        except sqlite3.Error as e:
+            logger.error("Failed to search sessions: %s", e, exc_info=True)
             raise
         finally:
             conn.close()
