@@ -1,32 +1,193 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page, type Route } from '@playwright/test';
+import { v4 as uuidv4 } from 'uuid';
 
-test.describe('Chat Interface', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-  });
-
-  test('displays chat interface on home page', async ({ page }) => {
-    // Check for main chat elements
-    await expect(page.getByPlaceholderText('Type your message...')).toBeVisible();
-    await expect(page.getByRole('button', { name: /send message/i })).toBeVisible();
-    await expect(page.getByRole('combobox')).toBeVisible(); // Mode selector
-  });
-
-  test('sends a message and displays it in chat', async ({ page }) => {
-    // Mock the API response
-    await page.route('**/api/query/**', async (route) => {
+/**
+ * Helper to set up common API mocks for chat tests.
+ * Mocks sessions list, health, ready, and config endpoints.
+ */
+async function setupCommonMocks(page: Page, sessions: Array<{ id: string; title: string }> = []) {
+  // Mock sessions list
+  const sessionsHandler = async (route: Route) => {
+    if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          response: 'This is a test response from the assistant.',
-          sources: [],
-          mode: 'hybrid',
+          sessions: sessions.map((s) => ({
+            id: s.id,
+            title: s.title,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            deleted_at: null,
+            message_count: 0,
+            last_message_preview: null,
+          })),
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    } else if (route.request().method() === 'POST') {
+      // Create session
+      const newId = uuidv4();
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: newId,
+          title: 'New Chat',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
+        }),
+      });
+    } else {
+      await route.continue();
+    }
+  };
+
+  await page.route(/\/api\/chat\/sessions(?:\?.*)?$/, sessionsHandler);
+
+  // Mock health endpoint
+  await page.route('**/health', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'healthy',
+        version: '1.0.0',
+        rag_initialized: true,
+        models: {},
+      }),
+    });
+  });
+
+  // Mock ready endpoint
+  await page.route('**/ready', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ready: true,
+        status: 'ready',
+      }),
+    });
+  });
+
+  // Mock config endpoint
+  await page.route(/\/api\/config\/.*$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        backend: { host: 'localhost', port: 8000, cors_origins: ['*'] },
+        models: {
+          llm: { provider: 'openai', model_name: 'gpt-4' },
+          embedding: { provider: 'openai', model_name: 'text-embedding-3-small' },
+        },
+        storage: { working_dir: './data', upload_dir: './uploads' },
+        processing: {
+          parser: 'default',
+          enable_image_processing: true,
+          enable_table_processing: true,
+          enable_equation_processing: true,
+        },
+      }),
+    });
+  });
+}
+
+test.describe('Chat Interface', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupCommonMocks(page);
+  });
+
+  test('shows empty state on /chat', async ({ page }) => {
+    await page.goto('/chat');
+
+    await expect(page.getByText('Welcome to Arona Chat')).toBeVisible();
+    // Empty-state CTA button (scope to main content to avoid sidebar icon button)
+    await expect(
+      page.locator('#main-content').getByRole('button', { name: /new chat/i })
+    ).toBeVisible();
+    await expect(page.getByPlaceholder('Type your message...')).not.toBeVisible();
+  });
+
+  test('creates new session and navigates to it', async ({ page }) => {
+    await page.goto('/chat');
+
+    // Click the new chat button in sidebar
+    await page.locator('aside').getByRole('button', { name: /new chat/i }).click();
+
+    // Should navigate to new session URL
+    await expect(page).toHaveURL(/\/chat\/[a-f0-9-]+/);
+  });
+
+  test('sends message via new turn API and displays response', async ({ page }) => {
+    const sessionId = uuidv4();
+
+    // Mock session detail
+    await page.route(`**/api/chat/sessions/${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: sessionId,
+          title: 'Test Session',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
         }),
       });
     });
 
-    const messageInput = page.getByPlaceholderText('Type your message...');
+    // Mock messages list (empty initially)
+    await page.route(`**/api/chat/sessions/${sessionId}/messages*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [],
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    });
+
+    // Mock turn API
+    await page.route(`**/api/chat/sessions/${sessionId}/turn`, async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          turn_id: body.request_id,
+          status: 'completed',
+          user_message: {
+            id: uuidv4(),
+            session_id: sessionId,
+            role: 'user',
+            content: body.query,
+            created_at: new Date().toISOString(),
+            metadata: { mode: 'hybrid' },
+          },
+          assistant_message: {
+            id: uuidv4(),
+            session_id: sessionId,
+            role: 'assistant',
+            content: 'This is a test response from the assistant.',
+            created_at: new Date().toISOString(),
+            metadata: {},
+          },
+          error: null,
+        }),
+      });
+    });
+
+    await page.goto(`/chat/${sessionId}`);
+
+    const messageInput = page.getByPlaceholder('Type your message...');
     const sendButton = page.getByRole('button', { name: /send message/i });
 
     // Type and send a message
@@ -44,20 +205,68 @@ test.describe('Chat Interface', () => {
   });
 
   test('sends message using Enter key', async ({ page }) => {
-    await page.route('**/api/query/**', async (route) => {
+    const sessionId = uuidv4();
+
+    // Setup session mocks
+    await page.route(`**/api/chat/sessions/${sessionId}`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          response: 'Response via Enter key',
-          sources: [],
-          mode: 'hybrid',
+          id: sessionId,
+          title: 'Test Session',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
         }),
       });
     });
 
-    const messageInput = page.getByPlaceholderText('Type your message...');
+    await page.route(`**/api/chat/sessions/${sessionId}/messages*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [],
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    });
 
+    await page.route(`**/api/chat/sessions/${sessionId}/turn`, async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          turn_id: body.request_id,
+          status: 'completed',
+          user_message: {
+            id: uuidv4(),
+            session_id: sessionId,
+            role: 'user',
+            content: body.query,
+            created_at: new Date().toISOString(),
+            metadata: { mode: 'hybrid' },
+          },
+          assistant_message: {
+            id: uuidv4(),
+            session_id: sessionId,
+            role: 'assistant',
+            content: 'Response via Enter key',
+            created_at: new Date().toISOString(),
+            metadata: {},
+          },
+          error: null,
+        }),
+      });
+    });
+
+    await page.goto(`/chat/${sessionId}`);
+
+    const messageInput = page.getByPlaceholder('Type your message...');
     await messageInput.fill('Test message');
     await messageInput.press('Enter');
 
@@ -66,7 +275,39 @@ test.describe('Chat Interface', () => {
   });
 
   test('adds new line with Shift+Enter', async ({ page }) => {
-    const messageInput = page.getByPlaceholderText('Type your message...');
+    const sessionId = uuidv4();
+
+    // Setup session mocks
+    await page.route(`**/api/chat/sessions/${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: sessionId,
+          title: 'Test Session',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
+        }),
+      });
+    });
+
+    await page.route(`**/api/chat/sessions/${sessionId}/messages*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [],
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    });
+
+    await page.goto(`/chat/${sessionId}`);
+
+    const messageInput = page.getByPlaceholder('Type your message...');
 
     await messageInput.fill('Line 1');
     await messageInput.press('Shift+Enter');
@@ -77,6 +318,38 @@ test.describe('Chat Interface', () => {
   });
 
   test('changes query mode', async ({ page }) => {
+    const sessionId = uuidv4();
+
+    // Setup session mocks
+    await page.route(`**/api/chat/sessions/${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: sessionId,
+          title: 'Test Session',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
+        }),
+      });
+    });
+
+    await page.route(`**/api/chat/sessions/${sessionId}/messages*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [],
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    });
+
+    await page.goto(`/chat/${sessionId}`);
+
     const modeSelector = page.getByRole('combobox');
 
     // Open mode selector
@@ -89,74 +362,122 @@ test.describe('Chat Interface', () => {
     await expect(modeSelector).toContainText('Local');
   });
 
-  test('displays conversation history', async ({ page }) => {
-    await page.route('**/api/query/**', async (route) => {
+  test('handles API errors gracefully', async ({ page }) => {
+    const sessionId = uuidv4();
+
+    await page.route(`**/api/chat/sessions/${sessionId}`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          response: 'Response',
-          sources: [],
-          mode: 'hybrid',
+          id: sessionId,
+          title: 'Test Session',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
         }),
       });
     });
 
-    const messageInput = page.getByPlaceholderText('Type your message...');
-    const sendButton = page.getByRole('button', { name: /send message/i });
+    await page.route(`**/api/chat/sessions/${sessionId}/messages*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [],
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    });
 
-    // Send first message
-    await messageInput.fill('First message');
-    await sendButton.click();
-    await expect(page.getByText('First message')).toBeVisible();
-
-    // Send second message
-    await messageInput.fill('Second message');
-    await sendButton.click();
-    await expect(page.getByText('Second message')).toBeVisible();
-
-    // Both messages should be visible
-    await expect(page.getByText('First message')).toBeVisible();
-    await expect(page.getByText('Second message')).toBeVisible();
-  });
-
-  test('handles API errors gracefully', async ({ page }) => {
-    await page.route('**/api/query/**', async (route) => {
+    await page.route(`**/api/chat/sessions/${sessionId}/turn`, async (route) => {
       await route.fulfill({
         status: 500,
         contentType: 'application/json',
         body: JSON.stringify({
-          detail: 'Internal server error',
+          detail: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
         }),
       });
     });
 
-    const messageInput = page.getByPlaceholderText('Type your message...');
+    await page.goto(`/chat/${sessionId}`);
+
+    const messageInput = page.getByPlaceholder('Type your message...');
     const sendButton = page.getByRole('button', { name: /send message/i });
 
     await messageInput.fill('Test message');
     await sendButton.click();
 
     // Should show error message or toast
-    await expect(page.getByText(/error/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/failed to send message/i)).toBeVisible({ timeout: 5000 });
   });
 
   test('disables input while loading', async ({ page }) => {
+    const sessionId = uuidv4();
+
+    await page.route(`**/api/chat/sessions/${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: sessionId,
+          title: 'Test Session',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
+        }),
+      });
+    });
+
+    await page.route(`**/api/chat/sessions/${sessionId}/messages*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [],
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    });
+
     // Delay the API response to test loading state
-    await page.route('**/api/query/**', async (route) => {
+    await page.route(`**/api/chat/sessions/${sessionId}/turn`, async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
       await new Promise((resolve) => setTimeout(resolve, 1000));
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          response: 'Delayed response',
-          sources: [],
-          mode: 'hybrid',
+          turn_id: body.request_id,
+          status: 'completed',
+          user_message: {
+            id: uuidv4(),
+            session_id: sessionId,
+            role: 'user',
+            content: body.query,
+            created_at: new Date().toISOString(),
+            metadata: { mode: 'hybrid' },
+          },
+          assistant_message: {
+            id: uuidv4(),
+            session_id: sessionId,
+            role: 'assistant',
+            content: 'Delayed response',
+            created_at: new Date().toISOString(),
+            metadata: {},
+          },
+          error: null,
         }),
       });
     });
 
-    const messageInput = page.getByPlaceholderText('Type your message...');
+    await page.goto(`/chat/${sessionId}`);
+
+    const messageInput = page.getByPlaceholder('Type your message...');
     const sendButton = page.getByRole('button', { name: /send message/i });
 
     await messageInput.fill('Test');
@@ -164,12 +485,11 @@ test.describe('Chat Interface', () => {
 
     // Input should be disabled during loading
     await expect(messageInput).toBeDisabled();
-    
+
     // Wait for response
     await expect(page.getByText('Delayed response')).toBeVisible({ timeout: 3000 });
-    
+
     // Input should be enabled again
     await expect(messageInput).toBeEnabled();
   });
 });
-

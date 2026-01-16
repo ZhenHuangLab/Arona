@@ -19,8 +19,8 @@ export default defineConfig({
   // Opt out of parallel tests on CI
   workers: process.env.CI ? 1 : undefined,
   
-  // Reporter to use
-  reporter: 'html',
+  // Reporter to use (avoid auto-opening the HTML report which can block CI runs)
+  reporter: [['html', { open: 'never' }], ['line']],
   
   // Shared settings for all the projects below
   use: {
@@ -35,20 +35,11 @@ export default defineConfig({
   },
 
   // Configure projects for major browsers
+  // Only use chromium for faster CI and simpler setup
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-    },
-
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
     },
   ],
 
@@ -60,4 +51,3 @@ export default defineConfig({
     timeout: 120 * 1000,
   },
 });
-

@@ -136,10 +136,15 @@ class ConversationRequest(BaseModel):
 
 class ConversationResponse(BaseModel):
     """Response model for conversational query."""
-    
+
     query: str = Field(..., description="User query text")
     response: str = Field(..., description="Generated response")
+    mode: str = Field(..., description="Query mode used")
     history: List[ConversationMessage] = Field(
         ...,
         description="Updated conversation history"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Additional metadata about the query"
     )

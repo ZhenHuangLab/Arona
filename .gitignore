@@ -82,3 +82,9 @@ CLAUDE.md
 AGENTS.md
 .serena/
 .mcp.json
+
+# Playwright
+playwright-report/
+test-results/
+frontend/playwright-report/
+frontend/test-results/

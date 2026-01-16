@@ -312,6 +312,7 @@ async def conversation_query(
         return ConversationResponse(
             query=req.query,
             response=response,
+            mode=req.mode,
             history=updated_history,
         )
     

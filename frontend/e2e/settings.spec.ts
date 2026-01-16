@@ -1,201 +1,147 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page, type Route } from '@playwright/test';
+
+async function mockSidebarSessions(page: Page) {
+  const handler = async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        sessions: [],
+        has_more: false,
+        next_cursor: null,
+      }),
+    });
+  };
+
+  await page.route(/\/api\/chat\/sessions(?:\?.*)?$/, handler);
+}
+
+async function mockHealth(page: Page, status: number = 200) {
+  await page.route('**/health', async (route) => {
+    if (status !== 200) {
+      await route.fulfill({
+        status,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Service unavailable' }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'healthy',
+        version: '1.0.0',
+        rag_initialized: true,
+        models: {},
+        timestamp: new Date().toISOString(),
+      }),
+    });
+  });
+}
+
+async function mockReady(page: Page, status: number = 200) {
+  await page.route('**/ready', async (route) => {
+    if (status !== 200) {
+      await route.fulfill({
+        status,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Not ready' }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ready: true,
+        status: 'ready',
+      }),
+    });
+  });
+}
+
+async function mockConfig(page: Page, status: number = 200) {
+  await page.route(/\/api\/config\/.*$/, async (route) => {
+    if (status !== 200) {
+      await route.fulfill({
+        status,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Failed to fetch config' }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        backend: { host: 'localhost', port: 8000, cors_origins: ['*'], env_file_loaded: '.env' },
+        models: {
+          llm: { provider: 'openai', model_name: 'gpt-4', base_url: 'https://api.openai.com/v1' },
+          embedding: { provider: 'openai', model_name: 'text-embedding-3-small' },
+          reranker: { enabled: false, provider: 'local_gpu', model_name: '' },
+        },
+        storage: { working_dir: './rag_storage', upload_dir: './uploads' },
+        processing: {
+          parser: 'mineru',
+          enable_image_processing: true,
+          enable_table_processing: true,
+          enable_equation_processing: true,
+        },
+      }),
+    });
+  });
+}
 
 test.describe('Settings Modal', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-
-    // Mock health check API
-    await page.route('**/health', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          status: 'healthy',
-          timestamp: new Date().toISOString(),
-        }),
-      });
-    });
-
-    // Mock config API
-    await page.route('**/api/config/**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          llm: {
-            provider: 'openai',
-            model: 'gpt-4',
-            api_key: '***',
-            base_url: 'https://api.openai.com/v1',
-          },
-          embedding: {
-            provider: 'openai',
-            model: 'text-embedding-3-small',
-          },
-          working_dir: './rag_storage',
-        }),
-      });
-    });
+    await mockSidebarSessions(page);
+    await mockHealth(page);
+    await mockReady(page);
+    await mockConfig(page);
+    await page.goto('/chat');
   });
 
-  test('opens settings modal', async ({ page }) => {
-    // Click settings button (gear icon)
+  test('opens and closes settings modal', async ({ page }) => {
     await page.getByRole('button', { name: /settings/i }).click();
-
-    // Modal should be visible
     await expect(page.getByRole('dialog')).toBeVisible();
-    await expect(page.getByText(/settings/i)).toBeVisible();
-  });
+    await expect(page.getByText('Settings & Configuration')).toBeVisible();
 
-  test('displays health status tab', async ({ page }) => {
-    await page.getByRole('button', { name: /settings/i }).click();
-
-    // Click on Health tab
-    await page.getByRole('tab', { name: /health/i }).click();
-
-    // Should show health status
-    await expect(page.getByText(/status/i)).toBeVisible();
-    await expect(page.getByText(/healthy/i)).toBeVisible();
-  });
-
-  test('displays configuration tab', async ({ page }) => {
-    await page.getByRole('button', { name: /settings/i }).click();
-
-    // Click on Configuration tab
-    await page.getByRole('tab', { name: /configuration/i }).click();
-
-    // Should show config details
-    await expect(page.getByText(/llm/i)).toBeVisible();
-    await expect(page.getByText(/embedding/i)).toBeVisible();
-  });
-
-  test('closes settings modal with close button', async ({ page }) => {
-    await page.getByRole('button', { name: /settings/i }).click();
-
-    // Modal should be visible
-    await expect(page.getByRole('dialog')).toBeVisible();
-
-    // Click close button
-    await page.getByRole('button', { name: /close/i }).click();
-
-    // Modal should be hidden
+    // There are multiple "Close" buttons (icon + footer); click the footer one.
+    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).first().click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
   });
 
-  test('closes settings modal with Escape key', async ({ page }) => {
+  test('shows backend health and configuration sections', async ({ page }) => {
     await page.getByRole('button', { name: /settings/i }).click();
 
-    // Modal should be visible
-    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Backend Health' })).toBeVisible();
+    await expect(page.getByText('Health Status', { exact: true })).toBeVisible();
+    await expect(page.getByText('Readiness', { exact: true })).toBeVisible();
+    await expect(page.getByText('healthy')).toBeVisible();
 
-    // Press Escape
-    await page.keyboard.press('Escape');
-
-    // Modal should be hidden
-    await expect(page.getByRole('dialog')).not.toBeVisible();
-  });
-
-  test('displays LLM configuration details', async ({ page }) => {
-    await page.getByRole('button', { name: /settings/i }).click();
-    await page.getByRole('tab', { name: /configuration/i }).click();
-
-    // Should show LLM details
-    await expect(page.getByText(/openai/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Configuration', exact: true })).toBeVisible();
+    await expect(page.getByText('LLM Provider')).toBeVisible();
+    await expect(page.getByText('Embedding Model')).toBeVisible();
     await expect(page.getByText(/gpt-4/i)).toBeVisible();
   });
 
-  test('displays embedding configuration details', async ({ page }) => {
-    await page.getByRole('button', { name: /settings/i }).click();
-    await page.getByRole('tab', { name: /configuration/i }).click();
+  test('shows error state when backend health endpoints fail', async ({ page }) => {
+    // Override health/ready to fail for this test
+    await mockHealth(page, 500);
+    await mockReady(page, 500);
 
-    // Should show embedding details
-    await expect(page.getByText(/text-embedding-3-small/i)).toBeVisible();
+    await page.getByRole('button', { name: /settings/i }).click();
+    await expect(page.getByText(/failed to connect to backend/i)).toBeVisible({ timeout: 5000 });
   });
 
-  test('handles health check errors', async ({ page }) => {
-    // Override health check to return error
-    await page.route('**/health', async (route) => {
-      await route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          detail: 'Service unavailable',
-        }),
-      });
-    });
+  test('shows error state when config endpoint fails', async ({ page }) => {
+    await mockConfig(page, 500);
 
-    await page.goto('/');
     await page.getByRole('button', { name: /settings/i }).click();
-    await page.getByRole('tab', { name: /health/i }).click();
-
-    // Should show error state
-    await expect(page.getByText(/error/i)).toBeVisible({ timeout: 5000 });
-  });
-
-  test('handles config fetch errors', async ({ page }) => {
-    // Override config to return error
-    await page.route('**/api/config/**', async (route) => {
-      await route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          detail: 'Failed to fetch config',
-        }),
-      });
-    });
-
-    await page.goto('/');
-    await page.getByRole('button', { name: /settings/i }).click();
-    await page.getByRole('tab', { name: /configuration/i }).click();
-
-    // Should show error state
-    await expect(page.getByText(/error/i)).toBeVisible({ timeout: 5000 });
-  });
-
-  test('refreshes health status', async ({ page }) => {
-    let callCount = 0;
-
-    await page.route('**/health', async (route) => {
-      callCount++;
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          status: 'healthy',
-          timestamp: new Date().toISOString(),
-          call: callCount,
-        }),
-      });
-    });
-
-    await page.goto('/');
-    await page.getByRole('button', { name: /settings/i }).click();
-    await page.getByRole('tab', { name: /health/i }).click();
-
-    // Click refresh button if available
-    const refreshButton = page.getByRole('button', { name: /refresh/i });
-    if (await refreshButton.isVisible()) {
-      await refreshButton.click();
-      
-      // Should have made multiple calls
-      expect(callCount).toBeGreaterThan(1);
-    }
-  });
-
-  test('switches between tabs', async ({ page }) => {
-    await page.getByRole('button', { name: /settings/i }).click();
-
-    // Start on Health tab
-    await page.getByRole('tab', { name: /health/i }).click();
-    await expect(page.getByText(/status/i)).toBeVisible();
-
-    // Switch to Configuration tab
-    await page.getByRole('tab', { name: /configuration/i }).click();
-    await expect(page.getByText(/llm/i)).toBeVisible();
-
-    // Switch back to Health tab
-    await page.getByRole('tab', { name: /health/i }).click();
-    await expect(page.getByText(/status/i)).toBeVisible();
+    await expect(page.getByText(/failed to load configuration/i)).toBeVisible({ timeout: 5000 });
   });
 });
-

@@ -108,3 +108,77 @@ bash scripts/start_frontend.sh
 - 后端会优先读取根目录 `.env`，如果不存在则读取 `.env.backend`。
 - 前端只有 `VITE_` 前缀的环境变量会被注入到浏览器端；**不要用 `VITE_` 前缀保存任何密钥**。
 - dev 模式下，前端默认使用 Vite proxy（见 `frontend/vite.config.ts`），因此通常不需要配置 `VITE_BACKEND_URL`。
+
+---
+
+## Chat API（多会话管理）
+
+Arona 支持多会话持久化管理，会话与消息存储在 SQLite（`backend/data/chat.db`）。
+
+### 端点概览
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| POST | `/api/chat/sessions` | 创建新会话 |
+| GET | `/api/chat/sessions` | 列出会话（支持分页 `?limit=20&cursor=...`、搜索 `?q=...`） |
+| GET | `/api/chat/sessions/{id}` | 获取单个会话详情 |
+| PATCH | `/api/chat/sessions/{id}` | 更新会话（重命名） |
+| DELETE | `/api/chat/sessions/{id}` | 删除会话（`?hard=true` 硬删除） |
+| GET | `/api/chat/sessions/{id}/messages` | 获取会话消息（支持分页） |
+| POST | `/api/chat/sessions/{id}/turn` | 发送消息并获取 AI 回复（幂等，需 `request_id`） |
+
+### Turn API 示例
+
+```bash
+# 创建会话
+curl -X POST http://localhost:8000/api/chat/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Test Chat"}'
+
+# 发送消息（需要 request_id 保证幂等）
+curl -X POST http://localhost:8000/api/chat/sessions/{session_id}/turn \
+  -H "Content-Type: application/json" \
+  -d '{
+    "request_id": "unique-uuid-here",
+    "query": "What is RAG?",
+    "mode": "hybrid"
+  }'
+```
+
+> **迁移说明**：目前不提供从旧 localStorage 迁移到后端的脚本（future work）。
+
+---
+
+## 验收步骤（本地开发）
+
+1. **启动服务**
+   ```bash
+   bash scripts/start_all.sh
+   ```
+
+2. **打开浏览器** `http://localhost:5173`
+
+3. **验收清单**
+   - [x] Sidebar 可见：New chat / Search / Chats 列表 / Documents / Settings
+   - [x] 点击 "+" 新建会话 → URL 变为 `/chat/<id>`
+   - [x] 发送消息 → 显示 AI 回复
+   - [x] 新建第二个会话 → 切换回第一个 → 消息隔离正确
+   - [x] 刷新页面 → 会话列表与消息仍存在
+   - [x] 点击 Sidebar "Documents" → 进入 `/documents/library`
+   - [x] Settings 可打开，health/config 显示正常
+
+---
+
+## 运行测试
+
+```bash
+# 后端测试
+pytest -q
+
+# 前端单元测试（非 watch 模式）
+cd frontend && npm run test:run
+
+# 前端 E2E 测试
+cd frontend && npx playwright test
+```
+
