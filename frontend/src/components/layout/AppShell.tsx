@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { PanelLeftOpen } from 'lucide-react';
 import { Sidebar } from './Sidebar';
-import { Button } from '@/components/ui/button';
+import { SidebarRail } from './SidebarRail';
 
 /**
  * AppShell Component
@@ -35,30 +34,19 @@ export function AppShell({ children }: AppShellProps) {
   }, [isSidebarCollapsed]);
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-background">
-      {!isSidebarCollapsed ? (
+    <div className="flex h-screen overflow-hidden bg-background">
+      {isSidebarCollapsed ? (
+        <SidebarRail onExpand={() => setIsSidebarCollapsed(false)} />
+      ) : (
         <Sidebar onCollapse={() => setIsSidebarCollapsed(true)} />
-      ) : null}
+      )}
       <main
         id="main-content"
         tabIndex={-1}
-        className={`flex-1 overflow-auto focus:outline-none ${isSidebarCollapsed ? 'pl-14' : ''}`}
+        className="flex-1 overflow-auto focus:outline-none"
       >
         {children}
       </main>
-
-      {isSidebarCollapsed ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="absolute left-3 top-3 z-50 h-10 w-10 rounded-full border bg-background/60 shadow-sm backdrop-blur-xl supports-[backdrop-filter]:bg-background/40"
-          onClick={() => setIsSidebarCollapsed(false)}
-          aria-label="Open sidebar"
-        >
-          <PanelLeftOpen className="h-5 w-5" aria-hidden="true" />
-        </Button>
-      ) : null}
     </div>
   );
 }

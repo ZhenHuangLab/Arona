@@ -33,7 +33,7 @@ export const ChatView: FC = () => {
   const hasSentInitialMessageRef = useRef(false);
 
   // Fetch session details if we have an ID
-  const { data: session, isLoading: isLoadingSession } = useChatSession(sessionId);
+  const { isLoading: isLoadingSession } = useChatSession(sessionId);
 
   // Chat hook with session context
   const { messages, sendMessage, stopGenerating, isSending, isLoadingMessages } = useChat(sessionId);
@@ -117,16 +117,6 @@ export const ChatView: FC = () => {
         role="region"
         aria-label="Chat conversation"
       >
-        {/* Chat Header */}
-        <div className="border-b bg-muted/40 px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium truncate max-w-[200px] sm:max-w-none">
-              {session?.title || 'Chat'}
-            </span>
-          </div>
-        </div>
-
         {/* Messages Area */}
         <div className="flex-1 overflow-hidden" role="log" aria-live="polite" aria-atomic="false">
           <ChatBox messages={messages} isLoading={isLoadingMessages && messages.length === 0} />

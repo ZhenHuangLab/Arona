@@ -93,7 +93,7 @@ export function InputBar({
       className={
         placement === 'centered'
           ? 'w-full'
-          : 'border-t bg-background/40 backdrop-blur-xl supports-[backdrop-filter]:bg-background/30 p-2 sm:p-4'
+          : 'bg-background/40 backdrop-blur-xl supports-[backdrop-filter]:bg-background/30 p-2 sm:p-4'
       }
     >
       <div className="mx-auto w-full max-w-3xl">
@@ -136,7 +136,7 @@ export function InputBar({
             onKeyDown={handleKeyDown}
             placeholder="Ask anything..."
             disabled={disabled || isLoading || isStarting}
-            className="flex-1 min-h-[44px] max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 px-2 py-2"
+            className="flex-1 min-h-[44px] max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 px-2 py-2.5 md:py-3"
             rows={1}
             aria-label="Message input"
             aria-describedby="input-hint"

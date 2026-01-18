@@ -1,6 +1,8 @@
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { cn } from '@/lib/utils';
 
 export interface MarkdownProps {
@@ -17,7 +19,12 @@ export interface MarkdownProps {
 export function Markdown({ content, className }: MarkdownProps) {
   return (
     <div className={cn('markdown', className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{content}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }

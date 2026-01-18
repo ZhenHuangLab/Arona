@@ -22,8 +22,8 @@ export function Message({ message }: MessageProps) {
     return (
       <div className="flex justify-end">
         <div className="flex max-w-[85%] flex-col items-end gap-1">
-          <div className="rounded-2xl rounded-br-md bg-muted/60 px-4 py-2 text-sm whitespace-pre-wrap break-words">
-            {message.content}
+          <div className="rounded-2xl rounded-br-md bg-muted/60 px-4 py-2">
+            <Markdown content={message.content} />
           </div>
           <span className="text-[11px] text-muted-foreground">{timeText}</span>
         </div>

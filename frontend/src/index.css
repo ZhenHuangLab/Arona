@@ -151,6 +151,11 @@
   .markdown th {
     @apply bg-muted/40 font-medium;
   }
+
+  /* KaTeX math rendering (rehype-katex) */
+  .markdown .katex-display {
+    @apply my-3 overflow-x-auto overflow-y-hidden;
+  }
 }
 
 @layer utilities {

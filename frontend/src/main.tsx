@@ -5,6 +5,7 @@ import { Toaster } from 'sonner';
 import { queryClient } from './lib/queryClient';
 import { ThemeProvider } from './components/theme';
 import './index.css';
+import 'katex/dist/katex.min.css';
 import App from './App.tsx';
 
 /**

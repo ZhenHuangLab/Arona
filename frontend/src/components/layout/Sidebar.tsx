@@ -53,6 +53,7 @@ export function Sidebar({ onCollapse }: SidebarProps) {
   // Search state with debounce
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Update debounced search after 300ms
@@ -70,18 +71,44 @@ export function Sidebar({ onCollapse }: SidebarProps) {
     };
   }, [searchInput]);
 
-  // Fetch sessions
+  const clearSearch = useCallback(() => {
+    setSearchInput('');
+    setDebouncedSearch('');
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, []);
+
+  // Fetch main session list
   const {
     data: sessionsData,
     isLoading: isLoadingSessions,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useChatSessions({ limit: 20, search: debouncedSearch });
+  } = useChatSessions({ limit: 20 });
+
+  // Fetch search results (dropdown)
+  const searchQuery = useChatSessions({
+    limit: 10,
+    search: debouncedSearch,
+    enabled: debouncedSearch.trim().length > 0,
+  });
 
   // Flatten pages into session list
   const sessions: ChatSessionWithStats[] =
     sessionsData?.pages.flatMap((page) => page.sessions) ?? [];
+
+  const searchResults: ChatSessionWithStats[] =
+    searchQuery.data?.pages.flatMap((page) => page.sessions) ?? [];
+
+  const trimmedSearchInput = searchInput.trim();
+  const trimmedDebouncedSearch = debouncedSearch.trim();
+  const isDebouncingSearch =
+    trimmedSearchInput.length > 0 && trimmedDebouncedSearch !== trimmedSearchInput;
+
+  const isSearchOpen = isSearchFocused && trimmedSearchInput.length > 0;
 
   // Mutations
   const renameSessionMutation = useRenameSession();
@@ -218,7 +245,66 @@ export function Sidebar({ onCollapse }: SidebarProps) {
               className="pl-8 h-9"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setIsSearchFocused(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  clearSearch();
+                  (e.currentTarget as HTMLInputElement).blur();
+                }
+              }}
             />
+            {isSearchOpen ? (
+              <div
+                className="absolute top-full left-0 right-0 mt-1 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md z-50"
+                // Prevent input blur from canceling clicks inside the dropdown.
+                onMouseDown={(e) => e.preventDefault()}
+                role="listbox"
+                aria-label="Search results"
+              >
+                {isDebouncingSearch || searchQuery.isFetching ? (
+                  <div className="flex items-center justify-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Searching…
+                  </div>
+                ) : searchResults.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-muted-foreground text-center">
+                    No matching chats
+                  </div>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto">
+                    {searchResults.map((session) => (
+                      <button
+                        key={session.id}
+                        type="button"
+                        className={cn(
+                          'w-full text-left px-3 py-2 text-sm transition-colors',
+                          'hover:bg-accent hover:text-accent-foreground',
+                          activeSessionId === session.id ? 'bg-accent text-accent-foreground' : ''
+                        )}
+                        onClick={() => {
+                          clearSearch();
+                          navigate(`/chat/${session.id}`);
+                        }}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <MessageSquare className="h-4 w-4 shrink-0 opacity-70" aria-hidden="true" />
+                          <div className="flex-1 min-w-0">
+                            <div className="truncate">{session.title}</div>
+                            {session.last_message_preview ? (
+                              <div className="truncate text-[11px] text-muted-foreground">
+                                {session.last_message_preview}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
 
           {/* Sessions list */}
@@ -233,7 +319,7 @@ export function Sidebar({ onCollapse }: SidebarProps) {
               </div>
             ) : sessions.length === 0 ? (
               <div className="text-xs text-muted-foreground text-center py-4">
-                {debouncedSearch ? 'No matching chats' : 'No conversations yet'}
+                No conversations yet
               </div>
             ) : (
               <>
