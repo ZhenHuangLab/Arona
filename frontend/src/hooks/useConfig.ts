@@ -4,19 +4,19 @@ import type { ConfigResponse } from '@/types/api';
 
 /**
  * useConfig Hook
- * 
+ *
  * Custom hook for fetching backend configuration with React Query.
- * 
+ *
  * Features:
  * - Fetch current backend configuration
  * - 5-minute cache (staleTime)
  * - Loading and error states
  * - Automatic refetching on reconnect
- * 
+ *
  * Usage:
  * ```tsx
  * const { config, isLoading, error, refetch } = useConfig();
- * 
+ *
  * if (config) {
  *   console.log(config.storage.upload_dir);
  * }
@@ -44,4 +44,3 @@ export function useConfig() {
     refetch,
   };
 }
-

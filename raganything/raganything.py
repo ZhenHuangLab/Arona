@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 from lightrag import LightRAG
 from lightrag.utils import EmbeddingFunc, logger
+
 # Import configuration and modules
 from raganything.config import RAGAnythingConfig
 from raganything.query import QueryMixin
@@ -172,9 +173,7 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
                 backoff_factor=self.config.ollama_retry_backoff,
             )
         except Exception as exc:  # pylint: disable=broad-except
-            self.logger.warning(
-                "Skipping Ollama auto-binding: %s", exc, exc_info=False
-            )
+            self.logger.warning("Skipping Ollama auto-binding: %s", exc, exc_info=False)
             return
 
         self._ollama_client = client
@@ -275,10 +274,15 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
 
         self._reranker_wrapper = wrapper
 
-        async def _score(query: str, documents: Sequence[str], **_kwargs) -> List[Dict[str, float]]:
+        async def _score(
+            query: str, documents: Sequence[str], **_kwargs
+        ) -> List[Dict[str, float]]:
             # Return new-format results to match LightRAG's current rerank contract
             scores = await wrapper.score_async(query, documents)
-            return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
+            return [
+                {"index": i, "relevance_score": float(s), "score": float(s)}
+                for i, s in enumerate(scores)
+            ]
 
         self.rerank_model_func = _score
         self.lightrag_kwargs.setdefault("rerank_model_func", self.rerank_model_func)

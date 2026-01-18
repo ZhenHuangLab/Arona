@@ -133,4 +133,3 @@ export const UploadView: React.FC = () => {
     </div>
   );
 };
-

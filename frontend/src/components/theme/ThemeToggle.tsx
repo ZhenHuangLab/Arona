@@ -10,10 +10,10 @@ import { useTheme } from './ThemeProvider';
 
 /**
  * Theme Toggle Component
- * 
+ *
  * Dropdown menu for switching between light, dark, and system themes.
  * Displays current theme with appropriate icon.
- * 
+ *
  * Accessibility:
  * - ARIA labels for screen readers
  * - Keyboard navigation support
@@ -25,8 +25,8 @@ export function ThemeToggle() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button 
-          variant="ghost" 
+        <Button
+          variant="ghost"
           size="icon"
           aria-label="Toggle theme"
           className="relative"
@@ -37,7 +37,7 @@ export function ThemeToggle() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem 
+        <DropdownMenuItem
           onClick={() => setTheme('light')}
           className="cursor-pointer"
           aria-current={theme === 'light' ? 'true' : undefined}
@@ -48,7 +48,7 @@ export function ThemeToggle() {
             <span className="ml-auto text-xs text-muted-foreground">✓</span>
           )}
         </DropdownMenuItem>
-        <DropdownMenuItem 
+        <DropdownMenuItem
           onClick={() => setTheme('dark')}
           className="cursor-pointer"
           aria-current={theme === 'dark' ? 'true' : undefined}
@@ -59,7 +59,7 @@ export function ThemeToggle() {
             <span className="ml-auto text-xs text-muted-foreground">✓</span>
           )}
         </DropdownMenuItem>
-        <DropdownMenuItem 
+        <DropdownMenuItem
           onClick={() => setTheme('system')}
           className="cursor-pointer"
           aria-current={theme === 'system' ? 'true' : undefined}
@@ -74,4 +74,3 @@ export function ThemeToggle() {
     </DropdownMenu>
   );
 }
-

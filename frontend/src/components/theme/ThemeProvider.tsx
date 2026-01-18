@@ -19,10 +19,10 @@ interface ThemeProviderProps {
 
 /**
  * Theme Provider Component
- * 
+ *
  * Manages theme state and applies dark mode class to document root.
  * Supports light, dark, and system preference modes.
- * 
+ *
  * Features:
  * - Persists theme preference via Zustand
  * - Listens to system theme changes
@@ -67,7 +67,7 @@ export function ThemeProvider({ children, defaultTheme = 'system' }: ThemeProvid
     if (theme !== 'system') return;
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    
+
     const handleChange = () => {
       const root = window.document.documentElement;
       const actualTheme = getActualTheme();
@@ -99,17 +99,16 @@ export function ThemeProvider({ children, defaultTheme = 'system' }: ThemeProvid
 
 /**
  * useTheme Hook
- * 
+ *
  * Access theme context from any component.
  * Must be used within ThemeProvider.
  */
 export function useTheme() {
   const context = useContext(ThemeProviderContext);
-  
+
   if (context === undefined) {
     throw new Error('useTheme must be used within a ThemeProvider');
   }
-  
+
   return context;
 }
-

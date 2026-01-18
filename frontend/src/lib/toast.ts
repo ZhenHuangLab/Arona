@@ -2,14 +2,14 @@ import { toast as sonnerToast } from 'sonner';
 
 /**
  * Toast Utility Functions
- * 
+ *
  * Wrapper around Sonner toast library with predefined styles
  * and common notification patterns
  */
 
 /**
  * Success Toast
- * 
+ *
  * Displays a success notification
  */
 export const toast = {
@@ -22,7 +22,7 @@ export const toast = {
 
   /**
    * Error Toast
-   * 
+   *
    * Displays an error notification
    */
   error: (message: string, description?: string) => {
@@ -34,7 +34,7 @@ export const toast = {
 
   /**
    * Info Toast
-   * 
+   *
    * Displays an informational notification
    */
   info: (message: string, description?: string) => {
@@ -46,7 +46,7 @@ export const toast = {
 
   /**
    * Warning Toast
-   * 
+   *
    * Displays a warning notification
    */
   warning: (message: string, description?: string) => {
@@ -58,7 +58,7 @@ export const toast = {
 
   /**
    * Loading Toast
-   * 
+   *
    * Displays a loading notification
    * Returns a toast ID that can be used to dismiss or update the toast
    */
@@ -70,7 +70,7 @@ export const toast = {
 
   /**
    * Promise Toast
-   * 
+   *
    * Displays a loading toast that automatically updates based on promise state
    */
   promise: <T,>(
@@ -86,7 +86,7 @@ export const toast = {
 
   /**
    * Dismiss Toast
-   * 
+   *
    * Dismisses a specific toast by ID or all toasts
    */
   dismiss: (toastId?: string | number) => {
@@ -96,7 +96,7 @@ export const toast = {
 
 /**
  * API Error Toast
- * 
+ *
  * Specialized toast for API errors with better error message extraction
  */
 export const apiErrorToast = (error: unknown, fallbackMessage = 'An error occurred') => {
@@ -115,7 +115,7 @@ export const apiErrorToast = (error: unknown, fallbackMessage = 'An error occurr
 
 /**
  * Upload Progress Toast
- * 
+ *
  * Creates a toast for file upload progress
  */
 export const uploadProgressToast = (filename: string) => {
@@ -124,7 +124,7 @@ export const uploadProgressToast = (filename: string) => {
 
 /**
  * Upload Success Toast
- * 
+ *
  * Displays success message for file upload
  */
 export const uploadSuccessToast = (filename: string, toastId?: string | number) => {
@@ -136,19 +136,18 @@ export const uploadSuccessToast = (filename: string, toastId?: string | number) 
 
 /**
  * Upload Error Toast
- * 
+ *
  * Displays error message for file upload
  */
 export const uploadErrorToast = (filename: string, error: unknown, toastId?: string | number) => {
   if (toastId) {
     sonnerToast.dismiss(toastId);
   }
-  
+
   let errorMessage = 'Upload failed';
   if (error instanceof Error) {
     errorMessage = error.message;
   }
-  
+
   toast.error('Upload failed', `Failed to upload ${filename}: ${errorMessage}`);
 };
-

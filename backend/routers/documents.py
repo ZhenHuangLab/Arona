@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, Request, UploadFile, File, HTTPException, status
-from fastapi.responses import JSONResponse
 
 from backend.models.document import (
     DocumentUploadResponse,
@@ -42,35 +41,35 @@ logger = logging.getLogger(__name__)
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
     request: Request,
-    file: UploadFile = File(..., description="Document file to upload")
+    file: UploadFile = File(..., description="Document file to upload"),
 ):
     """
     Upload a document file.
-    
+
     Saves the file to the upload directory for later processing.
     """
     state = request.app.state
-    
+
     try:
         # Create upload directory if it doesn't exist
         upload_dir = Path(state.config.upload_dir)
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Save uploaded file
         file_path = upload_dir / file.filename
-        
+
         # Check if file already exists
         if file_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"File '{file.filename}' already exists"
+                detail=f"File '{file.filename}' already exists",
             )
-        
+
         # Save file
         with open(file_path, "wb") as f:
             content = await file.read()
             f.write(content)
-        
+
         file_size = file_path.stat().st_size
 
         logger.info(f"Uploaded file: {file.filename} ({file_size} bytes)")
@@ -97,7 +96,7 @@ async def upload_document(
             # Log warning but don't fail the upload
             logger.warning(
                 f"Failed to create IndexStatus for {file.filename}: {status_error}",
-                exc_info=True
+                exc_info=True,
             )
 
         return DocumentUploadResponse(
@@ -106,38 +105,35 @@ async def upload_document(
             file_size=file_size,
             content_type=file.content_type,
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to upload file: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload file: {str(e)}"
+            detail=f"Failed to upload file: {str(e)}",
         )
 
 
 @router.post("/process", response_model=DocumentProcessResponse)
-async def process_document(
-    request: Request,
-    req: DocumentProcessRequest
-):
+async def process_document(request: Request, req: DocumentProcessRequest):
     """
     Process a document and add it to the knowledge base.
-    
+
     The document must have been uploaded first via /upload endpoint.
     """
     state = request.app.state
-    
+
     try:
         # Verify file exists
         file_path = Path(req.file_path)
         if not file_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"File not found: {req.file_path}"
+                detail=f"File not found: {req.file_path}",
             )
-        
+
         # Process document
         result = await state.rag_service.process_document(
             file_path=req.file_path,
@@ -192,18 +188,18 @@ async def process_document(
                 # Log warning but don't fail the processing response
                 logger.warning(
                     f"Failed to update IndexStatus for {req.file_path}: {status_error}",
-                    exc_info=True
+                    exc_info=True,
                 )
 
         return DocumentProcessResponse(**result)
-    
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to process document: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process document: {str(e)}"
+            detail=f"Failed to process document: {str(e)}",
         )
 
 
@@ -215,24 +211,24 @@ async def upload_and_process_document(
 ):
     """
     Upload and immediately process a document.
-    
+
     Combines upload and process operations into a single endpoint.
     """
     state = request.app.state
-    
+
     try:
         # Upload file
         upload_dir = Path(state.config.upload_dir)
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file_path = upload_dir / file.filename
-        
+
         with open(file_path, "wb") as f:
             content = await file.read()
             f.write(content)
-        
+
         logger.info(f"Uploaded and processing file: {file.filename}")
-        
+
         # Process document
         result = await state.rag_service.process_document(
             file_path=str(file_path),
@@ -263,46 +259,43 @@ async def upload_and_process_document(
                 # Log warning but don't fail the upload-and-process response
                 logger.warning(
                     f"Failed to create IndexStatus for {file.filename}: {status_error}",
-                    exc_info=True
+                    exc_info=True,
                 )
 
         return DocumentProcessResponse(**result)
-    
+
     except Exception as e:
         logger.error(f"Failed to upload and process document: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload and process document: {str(e)}"
+            detail=f"Failed to upload and process document: {str(e)}",
         )
 
 
 @router.post("/batch-process", response_model=BatchProcessResponse)
-async def batch_process_documents(
-    request: Request,
-    req: BatchProcessRequest
-):
+async def batch_process_documents(request: Request, req: BatchProcessRequest):
     """
     Process multiple documents from a folder.
-    
+
     Processes all documents in the specified folder matching the given extensions.
     """
     state = request.app.state
-    
+
     try:
         # Verify folder exists
         folder_path = Path(req.folder_path)
         if not folder_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Folder not found: {req.folder_path}"
+                detail=f"Folder not found: {req.folder_path}",
             )
-        
+
         # Get RAG instance
         rag = await state.rag_service.get_rag_instance()
-        
+
         # Process folder
         logger.info(f"Batch processing folder: {req.folder_path}")
-        
+
         await rag.process_folder_complete(
             folder_path=str(folder_path),
             output_dir=str(Path(state.config.working_dir) / "parsed_output"),
@@ -311,7 +304,7 @@ async def batch_process_documents(
             max_workers=req.max_workers,
             parse_method=req.parse_method,
         )
-        
+
         # TODO: Track individual file results
         # For now, return summary
         return BatchProcessResponse(
@@ -320,14 +313,14 @@ async def batch_process_documents(
             failed=0,
             results=[],
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to batch process documents: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to batch process documents: {str(e)}"
+            detail=f"Failed to batch process documents: {str(e)}",
         )
 
 
@@ -348,9 +341,7 @@ async def list_documents(request: Request):
 
         # List all files in upload directory
         documents = [
-            str(f.relative_to(upload_dir))
-            for f in upload_dir.rglob("*")
-            if f.is_file()
+            str(f.relative_to(upload_dir)) for f in upload_dir.rglob("*") if f.is_file()
         ]
 
         return DocumentListResponse(
@@ -362,7 +353,7 @@ async def list_documents(request: Request):
         logger.error(f"Failed to list documents: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list documents: {str(e)}"
+            detail=f"Failed to list documents: {str(e)}",
         )
 
 
@@ -402,12 +393,12 @@ async def get_document_details(request: Request):
             try:
                 for file_path in upload_dir.rglob("*"):
                     # Skip directories and hidden files
-                    if not file_path.is_file() or file_path.name.startswith('.'):
+                    if not file_path.is_file() or file_path.name.startswith("."):
                         continue
                     # Skip files in .trash
                     try:
                         relative = file_path.relative_to(upload_dir)
-                        if '.trash' in relative.parts:
+                        if ".trash" in relative.parts:
                             continue
                     except ValueError:
                         continue
@@ -428,14 +419,14 @@ async def get_document_details(request: Request):
 
         for file_path in upload_dir.rglob("*"):
             # Skip directories and hidden files
-            if not file_path.is_file() or file_path.name.startswith('.'):
+            if not file_path.is_file() or file_path.name.startswith("."):
                 continue
 
             # Skip files in trash folder
             try:
                 relative_path = file_path.relative_to(upload_dir)
                 # Check if file is in .trash directory
-                if '.trash' in relative_path.parts:
+                if ".trash" in relative_path.parts:
                     continue
             except ValueError:
                 # File is not relative to upload_dir, skip it
@@ -449,7 +440,9 @@ async def get_document_details(request: Request):
                 relative_path_str = str(relative_path)
 
                 # Determine status based on LightRAG processing
-                status_value = "indexed" if file_path.name in processed_doc_ids else "uploaded"
+                status_value = (
+                    "indexed" if file_path.name in processed_doc_ids else "uploaded"
+                )
 
                 # Create document detail item
                 detail = DocumentDetailItem(
@@ -477,7 +470,7 @@ async def get_document_details(request: Request):
         logger.error(f"Failed to get document details: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get document details: {str(e)}"
+            detail=f"Failed to get document details: {str(e)}",
         )
 
 
@@ -499,7 +492,7 @@ async def list_processed_documents(request: Request):
             return {
                 "documents": [],
                 "total": 0,
-                "message": "RAG system not initialized"
+                "message": "RAG system not initialized",
             }
 
         processed_docs = []
@@ -511,26 +504,34 @@ async def list_processed_documents(request: Request):
                 if upload_dir.exists():
                     for file_path in upload_dir.rglob("*"):
                         # Skip directories and hidden files
-                        if not file_path.is_file() or file_path.name.startswith('.'):
+                        if not file_path.is_file() or file_path.name.startswith("."):
                             continue
                         # Skip files in .trash
                         try:
                             relative = file_path.relative_to(upload_dir)
-                            if '.trash' in relative.parts:
+                            if ".trash" in relative.parts:
                                 continue
                         except ValueError:
                             continue
                         doc_pre_id = f"doc-pre-{file_path.name}"
                         try:
-                            doc_data = await rag.lightrag.doc_status.get_by_id(doc_pre_id)
+                            doc_data = await rag.lightrag.doc_status.get_by_id(
+                                doc_pre_id
+                            )
                             if doc_data:
-                                processed_docs.append({
-                                    "doc_id": doc_pre_id,
-                                    "file_path": doc_data.get("file_path", str(relative)),
-                                    "status": doc_data.get("status", "unknown"),
-                                    "chunks": doc_data.get("chunks", 0),
-                                    "processed_at": doc_data.get("processed_at", ""),
-                                })
+                                processed_docs.append(
+                                    {
+                                        "doc_id": doc_pre_id,
+                                        "file_path": doc_data.get(
+                                            "file_path", str(relative)
+                                        ),
+                                        "status": doc_data.get("status", "unknown"),
+                                        "chunks": doc_data.get("chunks", 0),
+                                        "processed_at": doc_data.get(
+                                            "processed_at", ""
+                                        ),
+                                    }
+                                )
                         except Exception:
                             continue
         except Exception as e:
@@ -539,22 +540,19 @@ async def list_processed_documents(request: Request):
         return {
             "documents": processed_docs,
             "total": len(processed_docs),
-            "working_dir": str(rag.lightrag.working_dir)
+            "working_dir": str(rag.lightrag.working_dir),
         }
 
     except Exception as e:
         logger.error(f"Failed to list processed documents: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list processed documents: {str(e)}"
+            detail=f"Failed to list processed documents: {str(e)}",
         )
 
 
 @router.delete("/delete/{filename}", response_model=DocumentDeleteResponse)
-async def delete_document(
-    request: Request,
-    filename: str
-):
+async def delete_document(request: Request, filename: str):
     """
     Soft delete a document by moving it to trash folder.
 
@@ -584,13 +582,13 @@ async def delete_document(
         if not safe_filename or safe_filename != filename:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid filename: must not contain path separators"
+                detail="Invalid filename: must not contain path separators",
             )
 
-        if safe_filename.startswith('.'):
+        if safe_filename.startswith("."):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid filename: hidden files cannot be deleted via API"
+                detail="Invalid filename: hidden files cannot be deleted via API",
             )
 
         # Build paths
@@ -601,13 +599,13 @@ async def delete_document(
         if not original_file_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"File not found: {safe_filename}"
+                detail=f"File not found: {safe_filename}",
             )
 
         if not original_file_path.is_file():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Not a file: {safe_filename}"
+                detail=f"Not a file: {safe_filename}",
             )
 
         # Create trash directory if it doesn't exist
@@ -639,14 +637,14 @@ async def delete_document(
         logger.error(f"Permission denied when deleting file: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Permission denied: cannot delete file '{filename}'"
+            detail=f"Permission denied: cannot delete file '{filename}'",
         )
 
     except Exception as e:
         logger.error(f"Failed to delete document: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete document: {str(e)}"
+            detail=f"Failed to delete document: {str(e)}",
         )
 
 
@@ -688,7 +686,7 @@ async def get_index_status(request: Request):
         logger.error(f"Failed to get index status: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get index status: {str(e)}"
+            detail=f"Failed to get index status: {str(e)}",
         )
 
 
@@ -707,10 +705,10 @@ async def trigger_index(request: Request):
 
     try:
         # Check if background indexer is available
-        if not hasattr(state, 'background_indexer') or state.background_indexer is None:
+        if not hasattr(state, "background_indexer") or state.background_indexer is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Background indexer is not enabled. Set AUTO_INDEXING_ENABLED=true in configuration."
+                detail="Background indexer is not enabled. Set AUTO_INDEXING_ENABLED=true in configuration.",
             )
 
         indexer = state.background_indexer
@@ -725,11 +723,14 @@ async def trigger_index(request: Request):
         # Count files by status
         files_scanned = len(all_statuses)
         files_pending = sum(1 for s in all_statuses if s.status == StatusEnum.PENDING)
-        files_processing = sum(1 for s in all_statuses if s.status == StatusEnum.PROCESSING)
+        files_processing = sum(
+            1 for s in all_statuses if s.status == StatusEnum.PROCESSING
+        )
 
         # Trigger background processing (don't await - let it run in background)
         # Reason: Processing can take time, don't block HTTP response
         import asyncio
+
         asyncio.create_task(indexer.process_pending_files())
 
         # Build response message
@@ -755,15 +756,12 @@ async def trigger_index(request: Request):
         logger.error(f"Failed to trigger index: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to trigger index: {str(e)}"
+            detail=f"Failed to trigger index: {str(e)}",
         )
 
 
 @router.post("/reindex", response_model=ReindexResponse)
-async def reindex_documents(
-    request: Request,
-    req: ReindexRequest
-):
+async def reindex_documents(request: Request, req: ReindexRequest):
     """
     Manually trigger re-indexing for specific files or all files.
 
@@ -790,10 +788,10 @@ async def reindex_documents(
 
     try:
         # Check if background indexer is available
-        if not hasattr(state, 'background_indexer') or state.background_indexer is None:
+        if not hasattr(state, "background_indexer") or state.background_indexer is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Background indexer is not enabled. Set AUTO_INDEXING_ENABLED=true in configuration."
+                detail="Background indexer is not enabled. Set AUTO_INDEXING_ENABLED=true in configuration.",
             )
 
         indexer = state.background_indexer
@@ -805,8 +803,7 @@ async def reindex_documents(
         if req.file_paths is not None:
             # Re-index specific files
             target_statuses = [
-                status for status in all_statuses
-                if status.file_path in req.file_paths
+                status for status in all_statuses if status.file_path in req.file_paths
             ]
             logger.info(f"Re-indexing {len(target_statuses)} specific files")
         else:
@@ -858,16 +855,12 @@ async def reindex_documents(
             if should_reindex:
                 # Update status to pending for re-indexing
                 state.index_status_service.update_status_field(
-                    status_record.file_path,
-                    "status",
-                    StatusEnum.PENDING
+                    status_record.file_path, "status", StatusEnum.PENDING
                 )
                 # Clear error message if it was failed
                 if status_record.status == StatusEnum.FAILED:
                     state.index_status_service.update_status_field(
-                        status_record.file_path,
-                        "error_message",
-                        None
+                        status_record.file_path, "error_message", None
                     )
                 files_marked += 1
                 logger.info(f"Marked for re-indexing: {status_record.file_path}")
@@ -875,6 +868,7 @@ async def reindex_documents(
         # Trigger background processing if any files were marked
         if files_marked > 0:
             import asyncio
+
             asyncio.create_task(indexer.process_pending_files())
             logger.info(f"Triggered background processing for {files_marked} files")
 
@@ -882,7 +876,7 @@ async def reindex_documents(
         if req.file_paths is not None:
             message = f"Re-index request for {len(req.file_paths)} specific file(s): "
         else:
-            message = f"Re-index request for all files: "
+            message = "Re-index request for all files: "
 
         message += f"{files_marked} marked for re-indexing, {files_skipped} skipped."
 
@@ -906,6 +900,5 @@ async def reindex_documents(
         logger.error(f"Failed to re-index documents: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to re-index documents: {str(e)}"
+            detail=f"Failed to re-index documents: {str(e)}",
         )
-

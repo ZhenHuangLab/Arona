@@ -75,7 +75,7 @@ export function DocumentDetailsModal({
       await navigator.clipboard.writeText(document.path);
       setCopied(true);
       toast.success('Copied to clipboard', 'Storage path copied successfully');
-      
+
       // Reset copied state after 2 seconds
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
@@ -246,4 +246,3 @@ export function DocumentDetailsModal({
     </Dialog>
   );
 }
-

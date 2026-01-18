@@ -55,4 +55,3 @@ export function useGraph(limit: number = 100) {
     refetch: refetchGraph,
   };
 }
-

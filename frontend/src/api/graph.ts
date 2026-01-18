@@ -28,4 +28,3 @@ export const getGraphStats = async (): Promise<Record<string, unknown>> => {
   const response = await apiClient.get<Record<string, unknown>>('/api/graph/stats');
   return response.data;
 };
-

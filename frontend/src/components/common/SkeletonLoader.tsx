@@ -10,7 +10,7 @@ interface SkeletonProps {
 
 /**
  * Base Skeleton Component
- * 
+ *
  * Displays an animated skeleton placeholder for loading states
  */
 export const Skeleton: React.FC<SkeletonProps> = ({ className }) => {
@@ -26,7 +26,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({ className }) => {
 
 /**
  * Message Skeleton
- * 
+ *
  * Skeleton loader for chat messages
  */
 export const MessageSkeleton: React.FC<{ isUser?: boolean }> = ({ isUser = false }) => {
@@ -43,7 +43,7 @@ export const MessageSkeleton: React.FC<{ isUser?: boolean }> = ({ isUser = false
 
 /**
  * Document Card Skeleton
- * 
+ *
  * Skeleton loader for document cards
  */
 export const DocumentCardSkeleton: React.FC = () => {
@@ -65,7 +65,7 @@ export const DocumentCardSkeleton: React.FC = () => {
 
 /**
  * Graph Stats Skeleton
- * 
+ *
  * Skeleton loader for graph statistics
  */
 export const GraphStatsSkeleton: React.FC = () => {
@@ -83,7 +83,7 @@ export const GraphStatsSkeleton: React.FC = () => {
 
 /**
  * Settings Section Skeleton
- * 
+ *
  * Skeleton loader for settings sections
  */
 export const SettingsSectionSkeleton: React.FC = () => {
@@ -101,4 +101,3 @@ export const SettingsSectionSkeleton: React.FC = () => {
     </div>
   );
 };
-

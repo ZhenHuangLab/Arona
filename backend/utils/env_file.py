@@ -4,7 +4,9 @@ import re
 from pathlib import Path
 from typing import Mapping
 
-_ENV_LINE_RE = re.compile(r"^(?P<prefix>\s*(?:export\s+)?)?(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.*)$")
+_ENV_LINE_RE = re.compile(
+    r"^(?P<prefix>\s*(?:export\s+)?)?(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.*)$"
+)
 
 
 def choose_env_file(project_root: Path) -> Path:
@@ -37,7 +39,12 @@ def _format_env_value(value: str) -> str:
         return ""
 
     # Quote if contains whitespace or comment-ish characters
-    needs_quotes = any(ch.isspace() for ch in value) or "#" in value or value.startswith('"') or value.endswith('"')
+    needs_quotes = (
+        any(ch.isspace() for ch in value)
+        or "#" in value
+        or value.startswith('"')
+        or value.endswith('"')
+    )
     if not needs_quotes and "\n" not in value and "\r" not in value:
         return value
 
@@ -96,4 +103,3 @@ def update_env_file(path: Path, updates: Mapping[str, str]) -> None:
             out_lines.append(f"{key}={_format_env_value(str(updates[key]))}\n")
 
     path.write_text("".join(out_lines), encoding="utf-8")
-

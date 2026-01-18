@@ -1,6 +1,6 @@
 /**
  * Clear Conversation Dialog
- * 
+ *
  * Confirmation dialog for clearing conversation history.
  * Follows minimalist design with modal/popup pattern.
  */
@@ -59,4 +59,3 @@ export function ClearConversationDialog({ onConfirm, disabled }: ClearConversati
     </AlertDialog>
   );
 }
-

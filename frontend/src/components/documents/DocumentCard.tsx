@@ -177,4 +177,3 @@ export function DocumentCard({ document, onClick }: DocumentCardProps) {
   </>
   );
 }
-

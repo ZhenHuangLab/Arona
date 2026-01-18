@@ -10,7 +10,7 @@ interface IconButtonProps extends Omit<ButtonProps, 'children'> {
 
 /**
  * IconButton Component
- * 
+ *
  * Button with Lucide React icon.
  * Supports all Button variants and sizes.
  */
@@ -29,4 +29,3 @@ export function IconButton({
     </Button>
   );
 }
-

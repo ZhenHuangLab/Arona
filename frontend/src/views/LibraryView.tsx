@@ -44,7 +44,7 @@ export const LibraryView: React.FC = () => {
   const filteredDocuments = React.useMemo(() => {
     if (!documents) return [];
     if (!searchQuery) return documents;
-    
+
     const query = searchQuery.toLowerCase();
     return documents.filter(doc =>
       doc.name.toLowerCase().includes(query) ||
@@ -273,4 +273,3 @@ export const LibraryView: React.FC = () => {
     </div>
   );
 };
-

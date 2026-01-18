@@ -21,10 +21,10 @@ interface ErrorBoundaryState {
 
 /**
  * Error Boundary Component
- * 
+ *
  * Catches JavaScript errors anywhere in the child component tree,
  * logs those errors, and displays a fallback UI instead of crashing.
- * 
+ *
  * Usage:
  * ```tsx
  * <ErrorBoundary>
@@ -110,7 +110,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
 /**
  * Error Fallback Component
- * 
+ *
  * Reusable fallback UI for error boundaries
  */
 interface ErrorFallbackProps {
@@ -149,4 +149,3 @@ export const ErrorFallback: React.FC<ErrorFallbackProps> = ({
     </div>
   );
 };
-

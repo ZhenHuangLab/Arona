@@ -11,7 +11,7 @@ interface ChatBoxProps {
 
 /**
  * ChatBox Component
- * 
+ *
  * Container for chat messages with auto-scroll functionality.
  * Displays messages in chronological order with empty state.
  */

@@ -1,6 +1,6 @@
 /**
  * Index Status Type Definitions
- * 
+ *
  * Types for document indexing status tracking.
  * Matches backend IndexStatusResponse model.
  */
@@ -29,4 +29,3 @@ export interface IndexStatus {
  * Response from GET /api/documents/index-status
  */
 export type IndexStatusListResponse = IndexStatus[];
-

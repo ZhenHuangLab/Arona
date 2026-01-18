@@ -12,46 +12,46 @@ from typing import List, Optional, Dict, Any, AsyncIterator
 
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers."""
-    
+
     @abstractmethod
     async def complete(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
         history_messages: Optional[List[Dict[str, str]]] = None,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         Generate text completion.
-        
+
         Args:
             prompt: User prompt
             system_prompt: Optional system prompt
             history_messages: Optional conversation history
             **kwargs: Provider-specific parameters
-            
+
         Returns:
             Generated text response
         """
         pass
-    
+
     @abstractmethod
     async def complete_stream(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
         history_messages: Optional[List[Dict[str, str]]] = None,
-        **kwargs
+        **kwargs,
     ) -> AsyncIterator[str]:
         """
         Generate streaming text completion.
-        
+
         Args:
             prompt: User prompt
             system_prompt: Optional system prompt
             history_messages: Optional conversation history
             **kwargs: Provider-specific parameters
-            
+
         Yields:
             Text chunks as they are generated
         """
@@ -60,24 +60,24 @@ class BaseLLMProvider(ABC):
 
 class BaseVisionProvider(ABC):
     """Abstract base class for vision-language model providers."""
-    
+
     @abstractmethod
     async def complete_with_images(
         self,
         prompt: str,
         images: List[str],  # Base64 encoded images
         system_prompt: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         Generate text completion with image inputs.
-        
+
         Args:
             prompt: User prompt
             images: List of base64-encoded images
             system_prompt: Optional system prompt
             **kwargs: Provider-specific parameters
-            
+
         Returns:
             Generated text response
         """
@@ -86,20 +86,16 @@ class BaseVisionProvider(ABC):
 
 class BaseEmbeddingProvider(ABC):
     """Abstract base class for embedding providers."""
-    
+
     @abstractmethod
-    async def embed(
-        self,
-        texts: List[str],
-        **kwargs
-    ) -> Any:
+    async def embed(self, texts: List[str], **kwargs) -> Any:
         """
         Generate embeddings for input texts.
-        
+
         Args:
             texts: List of texts to embed
             **kwargs: Provider-specific parameters
-            
+
         Returns:
             Embeddings for each input text.
 
@@ -108,7 +104,7 @@ class BaseEmbeddingProvider(ABC):
             with LightRAG/RAGAnything.
         """
         pass
-    
+
     @property
     @abstractmethod
     def embedding_dim(self) -> int:
@@ -118,22 +114,17 @@ class BaseEmbeddingProvider(ABC):
 
 class BaseRerankerProvider(ABC):
     """Abstract base class for reranking providers."""
-    
+
     @abstractmethod
-    async def rerank(
-        self,
-        query: str,
-        documents: List[str],
-        **kwargs
-    ) -> List[float]:
+    async def rerank(self, query: str, documents: List[str], **kwargs) -> List[float]:
         """
         Rerank documents for a query.
-        
+
         Args:
             query: Search query
             documents: List of document texts to rerank
             **kwargs: Provider-specific parameters
-            
+
         Returns:
             List of relevance scores (same length as documents)
         """

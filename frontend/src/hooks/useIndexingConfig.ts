@@ -1,6 +1,6 @@
 /**
  * useIndexingConfig Hooks
- * 
+ *
  * Custom hooks for indexing configuration operations with React Query.
  * Handles fetching, updating configuration, and triggering manual index scans.
  */
@@ -12,19 +12,19 @@ import type { IndexingConfig, IndexingConfigUpdate, TriggerIndexResponse, Reinde
 
 /**
  * useIndexingConfig Hook
- * 
+ *
  * Fetches current indexing configuration from backend.
- * 
+ *
  * Features:
  * - Fetch indexing configuration
  * - 1-minute cache (staleTime)
  * - Loading and error states
  * - Manual refetch capability
- * 
+ *
  * Usage:
  * ```tsx
  * const { config, isLoading, error, refetch } = useIndexingConfig();
- * 
+ *
  * if (config) {
  *   console.log(config.auto_indexing_enabled);
  * }
@@ -54,19 +54,19 @@ export function useIndexingConfig() {
 
 /**
  * useUpdateIndexingConfig Hook
- * 
+ *
  * Mutation for updating indexing configuration.
- * 
+ *
  * Features:
  * - Update configuration with partial updates
  * - Automatic cache invalidation
  * - Success/error toast notifications
  * - Loading state management
- * 
+ *
  * Usage:
  * ```tsx
  * const { updateConfig, isUpdating } = useUpdateIndexingConfig();
- * 
+ *
  * const handleSubmit = (data) => {
  *   updateConfig(data);
  * };
@@ -102,19 +102,19 @@ export function useUpdateIndexingConfig() {
 
 /**
  * useTriggerIndex Hook
- * 
+ *
  * Mutation for manually triggering index scan and processing.
- * 
+ *
  * Features:
  * - Trigger immediate index scan
  * - Show scan results in toast
  * - Automatic cache invalidation for index status
  * - Loading state management
- * 
+ *
  * Usage:
  * ```tsx
  * const { triggerScan, isTriggering } = useTriggerIndex();
- * 
+ *
  * const handleRefresh = () => {
  *   triggerScan();
  * };
@@ -213,4 +213,3 @@ export function useReindexDocuments() {
     error: mutation.error,
   };
 }
-

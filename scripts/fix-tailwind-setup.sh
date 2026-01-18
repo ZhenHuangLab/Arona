@@ -33,4 +33,3 @@ echo "   - Style: Default"
 echo "   - Base color: Slate"
 echo "   - CSS variables: Yes"
 echo ""
-

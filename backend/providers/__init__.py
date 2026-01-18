@@ -61,9 +61,18 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "OpenAIEmbeddingProvider": ("backend.providers.openai", "OpenAIEmbeddingProvider"),
     "JinaEmbeddingProvider": ("backend.providers.jina", "JinaEmbeddingProvider"),
     # Optional torch/transformers based providers
-    "LocalEmbeddingProvider": ("backend.providers.local_embedding", "LocalEmbeddingProvider"),
-    "LocalRerankerProvider": ("backend.providers.local_embedding", "LocalRerankerProvider"),
-    "MultimodalEmbeddingProvider": ("backend.providers.local_embedding", "MultimodalEmbeddingProvider"),
+    "LocalEmbeddingProvider": (
+        "backend.providers.local_embedding",
+        "LocalEmbeddingProvider",
+    ),
+    "LocalRerankerProvider": (
+        "backend.providers.local_embedding",
+        "LocalRerankerProvider",
+    ),
+    "MultimodalEmbeddingProvider": (
+        "backend.providers.local_embedding",
+        "MultimodalEmbeddingProvider",
+    ),
 }
 
 
@@ -89,12 +98,10 @@ def __getattr__(name: str) -> Any:  # pragma: no cover
                 "Failed to import local GPU providers (torch/CUDA dependency issue). "
                 "If you don't need local GPU embedding/reranking, use an API-based provider "
                 "(e.g. EMBEDDING_PROVIDER=openai) and avoid importing these classes. "
-                "Original error: "
-                + str(e)
+                "Original error: " + str(e)
             ) from e
         raise
 
 
 def __dir__() -> list[str]:  # pragma: no cover
     return sorted(set(list(globals().keys()) + list(_EXPORTS.keys())))
-

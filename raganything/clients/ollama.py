@@ -60,7 +60,9 @@ class OllamaClient:
         response = self._post_json("api/chat", payload)
         message = response.get("message")
         if not isinstance(message, dict) or "content" not in message:
-            raise OllamaClientError("Unexpected response payload from Ollama chat endpoint")
+            raise OllamaClientError(
+                "Unexpected response payload from Ollama chat endpoint"
+            )
         return message["content"]
 
     def embed(self, texts: Sequence[str], *, model: str) -> List[List[float]]:
@@ -75,7 +77,9 @@ class OllamaClient:
             response = self._post_json("api/embeddings", payload)
             vector = response.get("embedding")
             if not isinstance(vector, list):
-                raise OllamaClientError("Ollama embeddings response missing 'embedding' list")
+                raise OllamaClientError(
+                    "Ollama embeddings response missing 'embedding' list"
+                )
             if len(vector) == 0:
                 # Reason: Empty embeddings break RAG retrieval; fail fast with diagnostic info.
                 raise OllamaClientError(
@@ -112,7 +116,10 @@ class OllamaClient:
             req = request.Request(
                 url,
                 data=body,
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
                 method="POST",
             )
             try:

@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class FileMetadata:
     """
     Metadata for a file in the upload directory.
-    
+
     Attributes:
         path: Relative file path from upload directory
         hash: MD5 hash of file content
@@ -29,7 +29,7 @@ class FileMetadata:
         last_modified: File's last modification timestamp
         name: File name (without directory path)
     """
-    
+
     path: str
     hash: str
     size: int
@@ -40,30 +40,30 @@ class FileMetadata:
 def compute_file_hash(file_path: Path) -> str:
     """
     Compute MD5 hash of file content.
-    
+
     Reads file in chunks to handle large files efficiently.
-    
+
     Args:
         file_path: Path to file
-        
+
     Returns:
         MD5 hash as hexadecimal string
-        
+
     Raises:
         FileNotFoundError: If file does not exist
         PermissionError: If file cannot be read
         OSError: For other I/O errors
     """
     md5_hash = hashlib.md5()
-    
+
     try:
         with open(file_path, "rb") as f:
             # Read in 64KB chunks for memory efficiency
             for chunk in iter(lambda: f.read(65536), b""):
                 md5_hash.update(chunk)
-        
+
         return md5_hash.hexdigest()
-    
+
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
         raise
@@ -78,14 +78,14 @@ def compute_file_hash(file_path: Path) -> str:
 def get_file_metadata(file_path: Path, upload_dir: Path) -> FileMetadata:
     """
     Extract metadata for a single file.
-    
+
     Args:
         file_path: Absolute path to file
         upload_dir: Upload directory root (for computing relative path)
-        
+
     Returns:
         FileMetadata object with hash, size, mtime, and name
-        
+
     Raises:
         FileNotFoundError: If file does not exist
         PermissionError: If file cannot be accessed
@@ -93,7 +93,7 @@ def get_file_metadata(file_path: Path, upload_dir: Path) -> FileMetadata:
     """
     # Get file stats
     stat = file_path.stat()
-    
+
     # Compute relative path from upload_dir
     try:
         relative_path = file_path.relative_to(upload_dir)
@@ -101,10 +101,10 @@ def get_file_metadata(file_path: Path, upload_dir: Path) -> FileMetadata:
         # File is not under upload_dir
         logger.error(f"File {file_path} is not under upload_dir {upload_dir}")
         raise
-    
+
     # Compute hash
     file_hash = compute_file_hash(file_path)
-    
+
     # Extract metadata
     return FileMetadata(
         path=str(relative_path),
@@ -118,57 +118,56 @@ def get_file_metadata(file_path: Path, upload_dir: Path) -> FileMetadata:
 def scan_upload_directory(upload_dir: Path) -> List[FileMetadata]:
     """
     Scan upload directory and return metadata for all files.
-    
+
     Recursively scans all subdirectories. Handles errors gracefully
     by logging and continuing with remaining files.
-    
+
     Args:
         upload_dir: Path to upload directory
-        
+
     Returns:
         List of FileMetadata objects for all accessible files
     """
     if not upload_dir.exists():
         logger.warning(f"Upload directory does not exist: {upload_dir}")
         return []
-    
+
     if not upload_dir.is_dir():
         logger.error(f"Upload path is not a directory: {upload_dir}")
         return []
-    
+
     metadata_list: List[FileMetadata] = []
-    
+
     # Use rglob to recursively find all files
     for file_path in upload_dir.rglob("*"):
         # Skip directories
         if not file_path.is_file():
             continue
-        
+
         # Skip hidden files and trash directory
         if any(part.startswith(".") for part in file_path.parts):
             logger.debug(f"Skipping hidden/trash file: {file_path}")
             continue
-        
+
         try:
             metadata = get_file_metadata(file_path, upload_dir)
             metadata_list.append(metadata)
             logger.debug(f"Scanned file: {metadata.path} (hash={metadata.hash[:8]}...)")
-        
+
         except FileNotFoundError:
             # File was deleted during scan
             logger.warning(f"File disappeared during scan: {file_path}")
             continue
-        
+
         except PermissionError:
             # Cannot read file
             logger.warning(f"Permission denied for file: {file_path}")
             continue
-        
+
         except OSError as e:
             # Other I/O error
             logger.warning(f"Error scanning file {file_path}: {e}")
             continue
-    
+
     logger.info(f"Scanned {len(metadata_list)} files in {upload_dir}")
     return metadata_list
-

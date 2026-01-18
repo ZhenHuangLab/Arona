@@ -33,4 +33,3 @@ export interface DocumentMetadata {
   pageCount?: number;
   wordCount?: number;
 }
-

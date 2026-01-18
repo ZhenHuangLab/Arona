@@ -146,4 +146,3 @@ export const getIndexStatus = async (): Promise<IndexStatusListResponse> => {
     throw error;
   }
 };
-

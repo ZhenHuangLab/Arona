@@ -7,24 +7,32 @@ import pytest
 # Provide lightweight stubs for optional heavy deps to import the module under test
 if "sentence_transformers" not in sys.modules:
     st_mod = types.ModuleType("sentence_transformers")
+
     # simple placeholder; our tests inject a mock model instance directly
     class _ST:  # pragma: no cover - placeholder
         pass
+
     st_mod.SentenceTransformer = _ST
     sys.modules["sentence_transformers"] = st_mod
 
 if "transformers" not in sys.modules:
     tr_mod = types.ModuleType("transformers")
+
     class _TOK:  # pragma: no cover - placeholder
         pass
+
     class _CLS:  # pragma: no cover - placeholder
         pass
+
     class _CAUSAL:  # pragma: no cover - placeholder
         pass
+
     class _MODEL:  # pragma: no cover - placeholder
         pass
+
     class _PROC:  # pragma: no cover - placeholder
         pass
+
     tr_mod.AutoTokenizer = _TOK
     tr_mod.AutoModelForSequenceClassification = _CLS
     tr_mod.AutoModelForCausalLM = _CAUSAL
@@ -41,6 +49,7 @@ if "torch" not in sys.modules:
     class _NoGrad:
         def __enter__(self):
             return self
+
         def __exit__(self, exc_type, exc, tb):
             return False
 
@@ -53,6 +62,7 @@ if "torch" not in sys.modules:
         @staticmethod
         def is_available():
             return False
+
         @staticmethod
         def memory_allocated(device):
             return 0
@@ -75,7 +85,7 @@ if "PIL" not in sys.modules:
     sys.modules["PIL"] = pil_mod
     sys.modules["PIL.Image"] = pil_image_mod
 
-from backend.providers.local_embedding import BatchProcessor, BatchRequest
+from backend.providers.local_embedding import BatchProcessor
 
 
 class MockSentenceTransformer:
@@ -87,17 +97,23 @@ class MockSentenceTransformer:
         self.tokenize_call_sizes = []
 
     # Mimic sentence-transformers' encode signature
-    def encode(self, texts, convert_to_tensor=True, show_progress_bar=False, batch_size=32):
+    def encode(
+        self, texts, convert_to_tensor=True, show_progress_bar=False, batch_size=32
+    ):
         size = len(texts)
         self.encode_call_sizes.append(size)
         # Deterministic embeddings for test: [[0..], [1..], ...]
-        arr = np.arange(size * self.embedding_dim, dtype=np.float32).reshape(size, self.embedding_dim)
+        arr = np.arange(size * self.embedding_dim, dtype=np.float32).reshape(
+            size, self.embedding_dim
+        )
 
         class _MockTensor:
             def __init__(self, a):
                 self._a = a
+
             def cpu(self):
                 return self
+
             def numpy(self):
                 return self._a
 
@@ -150,8 +166,8 @@ async def test_max_batch_tokens_limits():
 
     # token counts by char length: 4, 3, 2
     r1 = asyncio.create_task(processor.embed(["aaaa"]))  # 4 tokens
-    r2 = asyncio.create_task(processor.embed(["bbb"]))   # 3 tokens
-    r3 = asyncio.create_task(processor.embed(["cc"]))    # 2 tokens
+    r2 = asyncio.create_task(processor.embed(["bbb"]))  # 3 tokens
+    r3 = asyncio.create_task(processor.embed(["cc"]))  # 2 tokens
 
     e1, e2, e3 = await asyncio.gather(r1, r2, r3)
 

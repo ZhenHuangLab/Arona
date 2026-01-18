@@ -107,7 +107,7 @@ echo "[5/5] Downloading models (if needed)..."
 
 if [ "${MODEL_EXISTS}" = false ] && [ "${ENV_TYPE}" != "offline" ]; then
     echo "  → Running download script..."
-    
+
     case "${RECOMMENDED_SOURCE}" in
         modelscope)
             export MINERU_MODEL_SOURCE=modelscope
@@ -125,7 +125,7 @@ if [ "${MODEL_EXISTS}" = false ] && [ "${ENV_TYPE}" != "offline" ]; then
             echo "  ⚠ Make sure models are already downloaded!"
             ;;
     esac
-    
+
     if [ "${RECOMMENDED_SOURCE}" != "local" ]; then
         bash scripts/download_mineru_models.sh
     fi
@@ -169,4 +169,3 @@ fi
 echo ""
 echo "For more help, see: docs/MINERU_NETWORK_ISSUES.md"
 echo "=========================================="
-

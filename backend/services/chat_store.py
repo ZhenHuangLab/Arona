@@ -75,7 +75,9 @@ def decode_cursor(cursor: str) -> tuple[str, str]:
 
 def compute_payload_hash(payload: dict[str, Any]) -> str:
     """Compute SHA256 hash of canonical JSON (sorted keys, no whitespace)."""
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -253,7 +255,9 @@ class ChatStore:
                     WHERE rowid NOT IN (SELECT rowid FROM chat_messages_fts)
                 """)
             except sqlite3.OperationalError as e:
-                logger.info("FTS5 not available; skipping chat_messages_fts init: %s", e)
+                logger.info(
+                    "FTS5 not available; skipping chat_messages_fts init: %s", e
+                )
 
             # Table: chat_turns
             conn.execute("""
@@ -487,7 +491,9 @@ class ChatStore:
         """
         query_text = (q or "").strip()
         if not query_text:
-            return self.list_sessions(limit=limit, cursor=cursor, q=None, user_id=user_id)
+            return self.list_sessions(
+                limit=limit, cursor=cursor, q=None, user_id=user_id
+            )
 
         limit = max(1, min(limit, MAX_SESSIONS_LIMIT))
         fetch_limit = limit + 1
@@ -638,10 +644,14 @@ class ChatStore:
             new_title = title[:SESSION_TITLE_MAX_LEN] if title else row["title"]
 
             # Merge metadata
-            existing_metadata = json.loads(row["metadata_json"]) if row["metadata_json"] else {}
+            existing_metadata = (
+                json.loads(row["metadata_json"]) if row["metadata_json"] else {}
+            )
             if metadata:
                 existing_metadata.update(metadata)
-            new_metadata_json = json.dumps(existing_metadata) if existing_metadata else None
+            new_metadata_json = (
+                json.dumps(existing_metadata) if existing_metadata else None
+            )
 
             conn.execute(
                 """
@@ -706,7 +716,9 @@ class ChatStore:
             deleted = cursor.rowcount > 0
 
             if deleted:
-                logger.debug(f"{'Hard' if hard else 'Soft'} deleted session {session_id}")
+                logger.debug(
+                    f"{'Hard' if hard else 'Soft'} deleted session {session_id}"
+                )
 
             return deleted
 
@@ -782,7 +794,16 @@ class ChatStore:
                 (id, session_id, role, content, token_count, user_id, created_at, metadata_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (message_id, session_id, role, content, token_count, user_id, now, metadata_json),
+                (
+                    message_id,
+                    session_id,
+                    role,
+                    content,
+                    token_count,
+                    user_id,
+                    now,
+                    metadata_json,
+                ),
             )
 
             # Update session's updated_at
@@ -793,7 +814,9 @@ class ChatStore:
 
             conn.commit()
 
-            logger.debug(f"Appended {role} message {message_id} to session {session_id}")
+            logger.debug(
+                f"Appended {role} message {message_id} to session {session_id}"
+            )
 
             return ChatMessage(
                 id=message_id,
@@ -807,7 +830,9 @@ class ChatStore:
             )
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to append message to session {session_id}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to append message to session {session_id}: {e}", exc_info=True
+            )
             raise
         finally:
             conn.close()
@@ -927,7 +952,9 @@ class ChatStore:
             )
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to list messages for session {session_id}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to list messages for session {session_id}: {e}", exc_info=True
+            )
             raise
         finally:
             conn.close()
@@ -989,7 +1016,10 @@ class ChatStore:
             return messages
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to get recent messages for session {session_id}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to get recent messages for session {session_id}: {e}",
+                exc_info=True,
+            )
             raise
         finally:
             conn.close()
@@ -1016,7 +1046,10 @@ class ChatStore:
             return count
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to delete messages for session {session_id}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to delete messages for session {session_id}: {e}",
+                exc_info=True,
+            )
             raise
         finally:
             conn.close()
@@ -1194,7 +1227,9 @@ class ChatStore:
             )
             conn.commit()
         except sqlite3.Error as e:
-            logger.error(f"Failed to update turn {turn_id} user message: {e}", exc_info=True)
+            logger.error(
+                f"Failed to update turn {turn_id} user message: {e}", exc_info=True
+            )
             raise
         finally:
             conn.close()

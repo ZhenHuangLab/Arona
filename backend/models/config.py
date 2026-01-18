@@ -8,15 +8,15 @@ from pydantic import BaseModel, Field
 
 class ConfigReloadRequest(BaseModel):
     """Request to reload configuration."""
+
     config_files: Optional[list[str]] = Field(
-        None,
-        description="Specific config files to reload. If None, reload all."
+        None, description="Specific config files to reload. If None, reload all."
     )
     apply: bool = Field(
         True,
         description="Whether to apply the reloaded configuration (rebuild BackendConfig + reinitialize services).",
     )
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -27,18 +27,23 @@ class ConfigReloadRequest(BaseModel):
 
 class ConfigReloadResponse(BaseModel):
     """Response from configuration reload."""
+
     status: str = Field(..., description="Reload status")
-    reloaded_files: list[str] = Field(default_factory=list, description="Files that were reloaded")
-    errors: Dict[str, str] = Field(default_factory=dict, description="Errors encountered")
+    reloaded_files: list[str] = Field(
+        default_factory=list, description="Files that were reloaded"
+    )
+    errors: Dict[str, str] = Field(
+        default_factory=dict, description="Errors encountered"
+    )
     message: str = Field(..., description="Human-readable message")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
                 "status": "success",
                 "reloaded_files": [".env.backend"],
                 "errors": {},
-                "message": "Configuration reloaded successfully"
+                "message": "Configuration reloaded successfully",
             }
         }
 
@@ -126,52 +131,42 @@ class ModelsUpdateResponse(BaseModel):
 
 class CurrentConfigResponse(BaseModel):
     """Current configuration response."""
-    backend: Dict[str, Any] = Field(default_factory=dict, description="Backend configuration")
-    models: Dict[str, Any] = Field(default_factory=dict, description="Model configurations")
-    storage: Dict[str, Any] = Field(default_factory=dict, description="Storage configuration")
-    processing: Dict[str, Any] = Field(default_factory=dict, description="Processing configuration")
+
+    backend: Dict[str, Any] = Field(
+        default_factory=dict, description="Backend configuration"
+    )
+    models: Dict[str, Any] = Field(
+        default_factory=dict, description="Model configurations"
+    )
+    storage: Dict[str, Any] = Field(
+        default_factory=dict, description="Storage configuration"
+    )
+    processing: Dict[str, Any] = Field(
+        default_factory=dict, description="Processing configuration"
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
-                "backend": {
-                    "host": "0.0.0.0",
-                    "port": 8000,
-                    "cors_origins": ["*"]
-                },
-                "models": {
-                    "llm": {
-                        "provider": "openai",
-                        "model_name": "gpt-4o-mini"
-                    }
-                },
-                "storage": {
-                    "working_dir": "./rag_storage",
-                    "upload_dir": "./uploads"
-                },
-                "processing": {
-                    "parser": "mineru",
-                    "enable_image_processing": True
-                }
+                "backend": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"]},
+                "models": {"llm": {"provider": "openai", "model_name": "gpt-4o-mini"}},
+                "storage": {"working_dir": "./rag_storage", "upload_dir": "./uploads"},
+                "processing": {"parser": "mineru", "enable_image_processing": True},
             }
         }
 
 
 class IndexingConfigResponse(BaseModel):
     """Response model for indexing configuration."""
+
     auto_indexing_enabled: bool = Field(
-        ...,
-        description="Whether automatic background indexing is enabled"
+        ..., description="Whether automatic background indexing is enabled"
     )
     indexing_scan_interval: int = Field(
-        ...,
-        ge=1,
-        description="Seconds between background scans for new files"
+        ..., ge=1, description="Seconds between background scans for new files"
     )
     indexing_max_files_per_batch: int = Field(
-        ...,
-        ge=1,
-        description="Maximum number of files to process per iteration"
+        ..., ge=1, description="Maximum number of files to process per iteration"
     )
 
     class Config:
@@ -179,32 +174,28 @@ class IndexingConfigResponse(BaseModel):
             "example": {
                 "auto_indexing_enabled": True,
                 "indexing_scan_interval": 60,
-                "indexing_max_files_per_batch": 5
+                "indexing_max_files_per_batch": 5,
             }
         }
 
 
 class IndexingConfigUpdate(BaseModel):
     """Request model for updating indexing configuration (partial updates supported)."""
+
     auto_indexing_enabled: Optional[bool] = Field(
-        None,
-        description="Whether automatic background indexing is enabled"
+        None, description="Whether automatic background indexing is enabled"
     )
     indexing_scan_interval: Optional[int] = Field(
-        None,
-        ge=1,
-        description="Seconds between background scans for new files"
+        None, ge=1, description="Seconds between background scans for new files"
     )
     indexing_max_files_per_batch: Optional[int] = Field(
-        None,
-        ge=1,
-        description="Maximum number of files to process per iteration"
+        None, ge=1, description="Maximum number of files to process per iteration"
     )
 
     class Config:
         json_schema_extra = {
             "example": {
                 "indexing_scan_interval": 120,
-                "indexing_max_files_per_batch": 10
+                "indexing_max_files_per_batch": 10,
             }
         }

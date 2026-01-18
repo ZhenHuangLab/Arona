@@ -5,9 +5,9 @@ import type { DocumentFile } from '@/types/document';
 
 /**
  * useDocuments Hook
- * 
+ *
  * Custom hook for document operations with React Query.
- * 
+ *
  * Features:
  * - Upload and process documents
  * - List all documents
@@ -99,4 +99,3 @@ export function useDocuments() {
     isDeleting: deleteMutation.isPending,
   };
 }
-

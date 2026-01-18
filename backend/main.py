@@ -83,7 +83,9 @@ async def lifespan(app: FastAPI):
     app.state.index_status_service = index_status_service
     app.state.chat_store = chat_store
     app.state.project_root = PROJECT_ROOT
-    app.state.env_file_loaded = str(ENV_FILE_LOADED) if ENV_FILE_LOADED is not None else None
+    app.state.env_file_loaded = (
+        str(ENV_FILE_LOADED) if ENV_FILE_LOADED is not None else None
+    )
     app.state.config_reload_lock = asyncio.Lock()
 
     # Start background indexer if enabled
@@ -92,7 +94,9 @@ async def lifespan(app: FastAPI):
         logger.info("Starting background indexer...")
         indexer = BackgroundIndexer(config, rag_service, index_status_service)
         background_task = asyncio.create_task(indexer.run_periodic_scan())
-        app.state.background_indexer = indexer  # Store indexer instance for manual triggers
+        app.state.background_indexer = (
+            indexer  # Store indexer instance for manual triggers
+        )
         app.state.background_indexer_task = background_task
         logger.info("Background indexer started")
     else:
@@ -122,7 +126,7 @@ async def lifespan(app: FastAPI):
             logger.error(f"Error stopping background indexer: {e}", exc_info=True)
 
     # Shutdown RAG service (including embedding provider)
-    if hasattr(app.state, 'rag_service'):
+    if hasattr(app.state, "rag_service"):
         logger.info("Shutting down RAG service...")
         try:
             await app.state.rag_service.shutdown()
@@ -169,7 +173,7 @@ async def root():
 def main():
     """Run the API server."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="RAG-Anything Backend API Server")
     default_host = os.getenv("API_HOST", "0.0.0.0")
     default_port_raw = os.getenv("API_PORT", "8000")
@@ -180,12 +184,14 @@ def main():
         default_port = 8000
 
     parser.add_argument("--host", default=default_host, help="Host to bind to")
-    parser.add_argument("--port", type=int, default=default_port, help="Port to bind to")
+    parser.add_argument(
+        "--port", type=int, default=default_port, help="Port to bind to"
+    )
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
     args = parser.parse_args()
-    
+
     logger.info(f"Starting server on {args.host}:{args.port}")
-    
+
     uvicorn.run(
         "backend.main:app",
         host=args.host,

@@ -29,7 +29,9 @@ from backend.providers.base import BaseEmbeddingProvider, BaseRerankerProvider
 
 logger = logging.getLogger(__name__)
 
-_IMAGE_PATH_RE = re.compile(r"(?im)^[ \t]*Image Path:[ \t]*(?P<path>.+?)[ \t]*$", re.MULTILINE)
+_IMAGE_PATH_RE = re.compile(
+    r"(?im)^[ \t]*Image Path:[ \t]*(?P<path>.+?)[ \t]*$", re.MULTILINE
+)
 
 # Qwen3-VL uses "image tokens" which are derived from pixel count. The official
 # scripts use IMAGE_BASE_FACTOR=16 and image_patch_size=16; we keep the same.
@@ -83,7 +85,9 @@ def _resolve_torch_dtype(dtype_str: str, *, torch_module: Any, device: str) -> A
     return torch_module.float32
 
 
-def _pool_last_token(hidden_state: Any, attention_mask: Any, *, torch_module: Any) -> Any:
+def _pool_last_token(
+    hidden_state: Any, attention_mask: Any, *, torch_module: Any
+) -> Any:
     """
     Pool embeddings by selecting the last non-padding token according to attention_mask.
 
@@ -152,7 +156,9 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
 
         self._torch = torch
         self._process_vision_info = process_vision_info
-        self.dtype = _resolve_torch_dtype(dtype_str, torch_module=torch, device=self.device)
+        self.dtype = _resolve_torch_dtype(
+            dtype_str, torch_module=torch, device=self.device
+        )
 
         if self.min_image_tokens <= 0 or self.max_image_tokens <= 0:
             raise ValueError(
@@ -206,14 +212,23 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
             #
             # To infer base_dim reliably, run warmup with a very large slice so we get the
             # full pooled representation (no truncation).
-            temp_dim = _as_positive_int(config.extra_params.get("infer_base_dim_max")) or 131072
+            temp_dim = (
+                _as_positive_int(config.extra_params.get("infer_base_dim_max"))
+                or 131072
+            )
             temp_dim = max(temp_dim, 131072)
             self._embedding_dim = temp_dim
 
             # Warmup to allocate kernels and validate the forward path.
             logger.info("Performing Qwen3-VL embedding warmup inference...")
-            warmup = self._embed_sync(["warmup text"], instruction=self.default_instruction)
-            base_dim = int(warmup.shape[1]) if hasattr(warmup, "shape") and len(warmup.shape) >= 2 else None
+            warmup = self._embed_sync(
+                ["warmup text"], instruction=self.default_instruction
+            )
+            base_dim = (
+                int(warmup.shape[1])
+                if hasattr(warmup, "shape") and len(warmup.shape) >= 2
+                else None
+            )
             if base_dim is None or base_dim <= 0:
                 raise RuntimeError(
                     "Failed to infer Qwen3-VL embedding hidden size from warmup inference output."
@@ -229,9 +244,15 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
             self._base_dim = int(base_dim)
             self._embedding_dim = int(requested_dim)
 
-            if torch.cuda.is_available() and isinstance(self.device, str) and self.device.startswith("cuda"):
+            if (
+                torch.cuda.is_available()
+                and isinstance(self.device, str)
+                and self.device.startswith("cuda")
+            ):
                 allocated = torch.cuda.memory_allocated(self.device) / 1024**3
-                logger.info("GPU memory allocated after embedding warmup: %.2f GB", allocated)
+                logger.info(
+                    "GPU memory allocated after embedding warmup: %.2f GB", allocated
+                )
 
             logger.info(
                 "Qwen3-VL embedding model ready (base_dim=%s, output_dim=%s)",
@@ -239,8 +260,12 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
                 self._embedding_dim,
             )
         except Exception as exc:
-            logger.error("Failed to load Qwen3-VL embedding model: %s", exc, exc_info=True)
-            raise RuntimeError(f"Failed to load Qwen3-VL embedding model: {exc}") from exc
+            logger.error(
+                "Failed to load Qwen3-VL embedding model: %s", exc, exc_info=True
+            )
+            raise RuntimeError(
+                f"Failed to load Qwen3-VL embedding model: {exc}"
+            ) from exc
 
     @property
     def embedding_dim(self) -> int:
@@ -254,7 +279,9 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
         loop = asyncio.get_event_loop()
 
         async with self._lock:
-            return await loop.run_in_executor(None, self._embed_sync, list(texts), instruction)
+            return await loop.run_in_executor(
+                None, self._embed_sync, list(texts), instruction
+            )
 
     def _embed_sync(self, texts: List[str], instruction: str) -> np.ndarray:
         torch = self._torch
@@ -269,7 +296,10 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
             has_local_image = False
 
             if image_path:
-                if image_path.startswith(("http://", "https://")) and not self.allow_image_urls:
+                if (
+                    image_path.startswith(("http://", "https://"))
+                    and not self.allow_image_urls
+                ):
                     image_path = None
                 elif image_path.startswith("file://"):
                     # file:// may be used in stored chunks; validate on filesystem.
@@ -287,7 +317,9 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
                 text_only = "NULL"
 
             user_content: List[Dict[str, Any]] = []
-            if image_path and (has_local_image or image_path.startswith(("http://", "https://"))):
+            if image_path and (
+                has_local_image or image_path.startswith(("http://", "https://"))
+            ):
                 user_content.append(
                     {
                         "type": "image",
@@ -301,7 +333,10 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
 
             conversations.append(
                 [
-                    {"role": "system", "content": [{"type": "text", "text": instruction}]},
+                    {
+                        "role": "system",
+                        "content": [{"type": "text", "text": instruction}],
+                    },
                     {"role": "user", "content": user_content},
                 ]
             )
@@ -322,8 +357,15 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
                 )
             except Exception as exc:  # pylint: disable=broad-except
                 # Fail-soft: if vision processing fails (bad image, missing deps), fall back to text-only
-                logger.warning("process_vision_info failed; falling back to text-only embedding: %s", exc)
-                images, video_inputs, video_kwargs = None, None, {"do_sample_frames": False}
+                logger.warning(
+                    "process_vision_info failed; falling back to text-only embedding: %s",
+                    exc,
+                )
+                images, video_inputs, video_kwargs = (
+                    None,
+                    None,
+                    {"do_sample_frames": False},
+                )
 
             if video_inputs is not None:
                 videos, video_metadata = zip(*video_inputs)
@@ -345,7 +387,9 @@ class Qwen3VLEmbeddingProvider(BaseEmbeddingProvider):
             )
 
             inputs = {
-                k: v.to(self.device) for k, v in processed.items() if isinstance(v, torch.Tensor)
+                k: v.to(self.device)
+                for k, v in processed.items()
+                if isinstance(v, torch.Tensor)
             }
 
             attention_mask = inputs.get("attention_mask")
@@ -412,7 +456,7 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
             "system_prompt",
             (
                 "Judge whether the Document meets the requirements based on the Query and the Instruct provided. "
-                "Note that the answer can only be \"yes\" or \"no\"."
+                'Note that the answer can only be "yes" or "no".'
             ),
         )
 
@@ -436,7 +480,9 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
 
         self._torch = torch
         self._process_vision_info = process_vision_info
-        self.dtype = _resolve_torch_dtype(dtype_str, torch_module=torch, device=self.device)
+        self.dtype = _resolve_torch_dtype(
+            dtype_str, torch_module=torch, device=self.device
+        )
 
         if self.batch_size <= 0:
             raise ValueError(f"Invalid reranker batch_size: {self.batch_size}")
@@ -479,7 +525,9 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
             )
             tokenizer = getattr(self.processor, "tokenizer", None)
             if tokenizer is None:
-                raise RuntimeError("Qwen3-VL reranker AutoProcessor did not provide a tokenizer")
+                raise RuntimeError(
+                    "Qwen3-VL reranker AutoProcessor did not provide a tokenizer"
+                )
 
             # Qwen3-VL reranker scoring uses the last token hidden state. We use left padding
             # so "[-1]" corresponds to the last *real* token for all rows.
@@ -511,14 +559,24 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
                 instruction=self.default_instruction,
             )
 
-            if torch.cuda.is_available() and isinstance(self.device, str) and self.device.startswith("cuda"):
+            if (
+                torch.cuda.is_available()
+                and isinstance(self.device, str)
+                and self.device.startswith("cuda")
+            ):
                 allocated = torch.cuda.memory_allocated(self.device) / 1024**3
-                logger.info("GPU memory allocated after reranker warmup: %.2f GB", allocated)
+                logger.info(
+                    "GPU memory allocated after reranker warmup: %.2f GB", allocated
+                )
 
             logger.info("Qwen3-VL reranker model ready")
         except Exception as exc:
-            logger.error("Failed to load Qwen3-VL reranker model: %s", exc, exc_info=True)
-            raise RuntimeError(f"Failed to load Qwen3-VL reranker model: {exc}") from exc
+            logger.error(
+                "Failed to load Qwen3-VL reranker model: %s", exc, exc_info=True
+            )
+            raise RuntimeError(
+                f"Failed to load Qwen3-VL reranker model: {exc}"
+            ) from exc
 
     async def shutdown(self) -> None:
         """Best-effort release of GPU/CPU resources."""
@@ -548,7 +606,9 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
 
         ids = tokenizer(token, add_special_tokens=False).input_ids
         if len(ids) != 1:
-            raise ValueError(f'Expected "{token}" to be a single token, got token ids: {ids}')
+            raise ValueError(
+                f'Expected "{token}" to be a single token, got token ids: {ids}'
+            )
         return int(ids[0])
 
     @staticmethod
@@ -592,7 +652,9 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
 
         return final_ids
 
-    def _format_pair(self, *, instruction: str, query: str, document: str) -> List[Dict[str, Any]]:
+    def _format_pair(
+        self, *, instruction: str, query: str, document: str
+    ) -> List[Dict[str, Any]]:
         """Format (query, document) pair in the official instruction-aware template.
 
         The backend rerank contract is text-only, so we infer multimodal inputs by parsing
@@ -624,7 +686,9 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
         query_text = _strip_image_path_line(query or "").strip() or "NULL"
         doc_text = _strip_image_path_line(document or "").strip() or "NULL"
 
-        user_content: List[Dict[str, Any]] = [{"type": "text", "text": "<Instruct>: " + instruction}]
+        user_content: List[Dict[str, Any]] = [
+            {"type": "text", "text": "<Instruct>: " + instruction}
+        ]
 
         # Query block
         user_content.append({"type": "text", "text": "<Query>:"})
@@ -653,7 +717,10 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
         user_content.append({"type": "text", "text": doc_text})
 
         return [
-            {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": self.system_prompt}],
+            },
             {"role": "user", "content": user_content},
         ]
 
@@ -672,7 +739,10 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
                 return_video_metadata=True,
             )
         except Exception as exc:  # pylint: disable=broad-except
-            logger.warning("process_vision_info failed in reranker; falling back to text-only: %s", exc)
+            logger.warning(
+                "process_vision_info failed in reranker; falling back to text-only: %s",
+                exc,
+            )
             images, video_inputs, video_kwargs = None, None, {"do_sample_frames": False}
 
         if video_inputs is not None:
@@ -694,7 +764,9 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
 
         input_ids = inputs.get("input_ids")
         if not isinstance(input_ids, list):
-            raise RuntimeError("Processor returned unexpected input_ids type for reranker")
+            raise RuntimeError(
+                "Processor returned unexpected input_ids type for reranker"
+            )
 
         special_ids = self._special_ids
         keep_tail = self._KEEP_TAIL_TOKENS
@@ -725,7 +797,11 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
             moved = to_fn(self.device)
             return {k: v for k, v in moved.items() if isinstance(v, torch.Tensor)}
 
-        return {k: v.to(self.device) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+        return {
+            k: v.to(self.device)
+            for k, v in inputs.items()
+            if isinstance(v, torch.Tensor)
+        }
 
     async def rerank(self, query: str, documents: List[str], **kwargs) -> List[float]:
         if not documents:
@@ -739,7 +815,9 @@ class Qwen3VLRerankerProvider(BaseRerankerProvider):
                 None, self._rerank_sync, query, list(documents), instruction
             )
 
-    def _rerank_sync(self, query: str, documents: List[str], instruction: str) -> List[float]:
+    def _rerank_sync(
+        self, query: str, documents: List[str], instruction: str
+    ) -> List[float]:
         torch = self._torch
 
         scores: List[float] = []

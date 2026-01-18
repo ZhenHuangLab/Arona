@@ -32,14 +32,14 @@ class APIReranker:
     batch_size: int = 16
     timeout: float = 30.0
     max_retries: int = 3
-    
+
     _client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Validate configuration and set defaults."""
         if self.batch_size <= 0:
             raise ValueError("batch_size must be positive for APIReranker")
-        
+
         # Set default base URLs for known providers
         if not self.base_url:
             if self.provider == "jina":
@@ -55,7 +55,7 @@ class APIReranker:
                     f"Unknown provider '{self.provider}'. "
                     "Please specify base_url for custom providers."
                 )
-        
+
         logger.info(
             f"Initialized APIReranker: provider={self.provider}, "
             f"model={self.model_name}, base_url={self.base_url}"
@@ -79,11 +79,11 @@ class APIReranker:
     async def score_async(self, query: str, documents: Sequence[str]) -> List[float]:
         """
         Asynchronously score documents for a single query.
-        
+
         Args:
             query: Search query
             documents: List of document texts to rerank
-            
+
         Returns:
             List of relevance scores (same length as documents)
         """
@@ -92,22 +92,22 @@ class APIReranker:
 
         # Process in batches if needed
         all_scores: List[float] = []
-        
+
         for i in range(0, len(documents), self.batch_size):
             batch = documents[i : i + self.batch_size]
             batch_scores = await self._score_batch(query, batch)
             all_scores.extend(batch_scores)
-        
+
         return all_scores
 
     async def _score_batch(self, query: str, documents: Sequence[str]) -> List[float]:
         """Score a single batch of documents."""
         client = await self._get_client()
-        
+
         # Prepare request based on provider
         request_data = self._prepare_request(query, documents)
         headers = self._prepare_headers()
-        
+
         # Retry logic
         last_error = None
         for attempt in range(self.max_retries):
@@ -118,37 +118,37 @@ class APIReranker:
                     headers=headers,
                 )
                 response.raise_for_status()
-                
+
                 # Parse response based on provider
                 scores = self._parse_response(response.json(), len(documents))
                 return scores
-                
+
             except httpx.HTTPStatusError as exc:
                 last_error = exc
                 logger.warning(
                     f"Reranker API request failed (attempt {attempt + 1}/{self.max_retries}): "
                     f"HTTP {exc.response.status_code} - {exc.response.text}"
                 )
-                
+
                 # Don't retry on client errors (4xx)
                 if 400 <= exc.response.status_code < 500:
                     raise RerankerError(
                         f"Reranker API client error: {exc.response.status_code} - {exc.response.text}"
                     ) from exc
-                
+
                 # Exponential backoff for server errors
                 if attempt < self.max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)
-                    
+                    await asyncio.sleep(2**attempt)
+
             except Exception as exc:
                 last_error = exc
                 logger.warning(
                     f"Reranker API request failed (attempt {attempt + 1}/{self.max_retries}): {exc}"
                 )
-                
+
                 if attempt < self.max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)
-        
+                    await asyncio.sleep(2**attempt)
+
         # All retries failed
         raise RerankerError(
             f"Reranker API request failed after {self.max_retries} attempts: {last_error}"
@@ -157,7 +157,7 @@ class APIReranker:
     def _prepare_headers(self) -> Dict[str, str]:
         """Prepare HTTP headers based on provider."""
         headers = {"Content-Type": "application/json"}
-        
+
         if self.provider == "jina":
             headers["Authorization"] = f"Bearer {self.api_key}"
         elif self.provider == "cohere":
@@ -169,7 +169,7 @@ class APIReranker:
         else:
             # Generic: assume Bearer token
             headers["Authorization"] = f"Bearer {self.api_key}"
-        
+
         return headers
 
     def _prepare_request(self, query: str, documents: Sequence[str]) -> Dict[str, Any]:
@@ -182,7 +182,7 @@ class APIReranker:
                 "documents": list(documents),
                 "top_n": len(documents),  # Return all documents with scores
             }
-        
+
         elif self.provider == "cohere":
             # Cohere API format
             return {
@@ -192,7 +192,7 @@ class APIReranker:
                 "top_n": len(documents),
                 "return_documents": False,  # We only need scores
             }
-        
+
         elif self.provider == "voyage":
             # Voyage AI API format
             return {
@@ -201,7 +201,7 @@ class APIReranker:
                 "documents": list(documents),
                 "top_k": len(documents),
             }
-        
+
         elif self.provider == "openai":
             # OpenAI-compatible format (hypothetical)
             return {
@@ -209,7 +209,7 @@ class APIReranker:
                 "query": query,
                 "documents": list(documents),
             }
-        
+
         else:
             # Generic format (similar to OpenAI)
             return {
@@ -218,7 +218,9 @@ class APIReranker:
                 "documents": list(documents),
             }
 
-    def _parse_response(self, response_data: Dict[str, Any], expected_count: int) -> List[float]:
+    def _parse_response(
+        self, response_data: Dict[str, Any], expected_count: int
+    ) -> List[float]:
         """Parse API response and extract scores."""
         try:
             if self.provider == "jina":
@@ -227,25 +229,25 @@ class APIReranker:
                 # Sort by index to maintain order
                 results_sorted = sorted(results, key=lambda x: x.get("index", 0))
                 scores = [float(r.get("relevance_score", 0.0)) for r in results_sorted]
-                
+
             elif self.provider == "cohere":
                 # Cohere returns: {"results": [{"index": 0, "relevance_score": 0.95}, ...]}
                 results = response_data.get("results", [])
                 results_sorted = sorted(results, key=lambda x: x.get("index", 0))
                 scores = [float(r.get("relevance_score", 0.0)) for r in results_sorted]
-                
+
             elif self.provider == "voyage":
                 # Voyage returns: {"data": [{"index": 0, "relevance_score": 0.95}, ...]}
                 data = response_data.get("data", [])
                 data_sorted = sorted(data, key=lambda x: x.get("index", 0))
                 scores = [float(d.get("relevance_score", 0.0)) for d in data_sorted]
-                
+
             elif self.provider == "openai":
                 # OpenAI-compatible format
                 results = response_data.get("results", [])
                 results_sorted = sorted(results, key=lambda x: x.get("index", 0))
                 scores = [float(r.get("score", 0.0)) for r in results_sorted]
-                
+
             else:
                 # Generic: try to find scores in common formats
                 if "results" in response_data:
@@ -264,7 +266,7 @@ class APIReranker:
                     ]
                 else:
                     raise ValueError(f"Unknown response format: {response_data.keys()}")
-            
+
             # Validate score count
             if len(scores) != expected_count:
                 logger.warning(
@@ -276,9 +278,9 @@ class APIReranker:
                     scores.append(0.0)
                 # Truncate if too many
                 scores = scores[:expected_count]
-            
+
             return scores
-            
+
         except Exception as exc:
             raise RerankerError(
                 f"Failed to parse reranker response: {exc}. Response: {response_data}"
@@ -295,4 +297,3 @@ class APIReranker:
             except RuntimeError:
                 # No event loop, can't cleanup
                 pass
-

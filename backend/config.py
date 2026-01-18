@@ -18,50 +18,61 @@ import yaml
 
 class ProviderType(str, Enum):
     """Supported model provider types."""
+
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     AZURE = "azure"
     CUSTOM = "custom"  # Any OpenAI-compatible API
-    LOCAL = "local"    # Local models (Ollama, LM Studio, etc.)
+    LOCAL = "local"  # Local models (Ollama, LM Studio, etc.)
     LOCAL_GPU = "local_gpu"  # Local GPU inference (in-process HF/ST models)
 
 
 class ModelType(str, Enum):
     """Model capability types."""
-    LLM = "llm"              # Text generation
-    VISION = "vision"        # Vision-language model
+
+    LLM = "llm"  # Text generation
+    VISION = "vision"  # Vision-language model
     EMBEDDING = "embedding"  # Text embeddings
-    RERANKER = "reranker"    # Document reranking
+    RERANKER = "reranker"  # Document reranking
 
 
 @dataclass
 class ModelConfig:
     """Configuration for a single model."""
-    
+
     provider: ProviderType
     model_name: str
     model_type: ModelType
-    
+
     # API configuration
     api_key: Optional[str] = None
     base_url: Optional[str] = None
-    
+
     # Model-specific parameters
     embedding_dim: Optional[int] = None  # For embedding models
     max_tokens: Optional[int] = None
     temperature: float = 0.7
-    
+
     # Additional provider-specific settings
     extra_params: Dict[str, Any] = field(default_factory=dict)
-    
+
     def __post_init__(self):
         """Validate configuration."""
         # LOCAL_GPU only makes sense for in-process models.
-        if self.provider == ProviderType.LOCAL_GPU and self.model_type != ModelType.EMBEDDING:
-            raise ValueError("LOCAL_GPU provider is only supported for embedding models")
+        if (
+            self.provider == ProviderType.LOCAL_GPU
+            and self.model_type != ModelType.EMBEDDING
+        ):
+            raise ValueError(
+                "LOCAL_GPU provider is only supported for embedding models"
+            )
 
         # API-based providers require api_key
-        if self.provider in [ProviderType.OPENAI, ProviderType.ANTHROPIC, ProviderType.AZURE]:
+        if self.provider in [
+            ProviderType.OPENAI,
+            ProviderType.ANTHROPIC,
+            ProviderType.AZURE,
+        ]:
             if not self.api_key:
                 raise ValueError(f"{self.provider} provider requires api_key")
 
@@ -70,13 +81,14 @@ class ModelConfig:
             # Local GPU providers may omit embedding_dim (it can be determined from the model).
             device = self.extra_params.get("device")
             is_cuda_device = isinstance(device, str) and device.startswith("cuda")
-            is_local_gpu = (
-                self.provider == ProviderType.LOCAL_GPU
-                or (self.provider == ProviderType.LOCAL and self.base_url is None and is_cuda_device)
+            is_local_gpu = self.provider == ProviderType.LOCAL_GPU or (
+                self.provider == ProviderType.LOCAL
+                and self.base_url is None
+                and is_cuda_device
             )
             if not is_local_gpu and not self.embedding_dim:
                 raise ValueError("Embedding models require embedding_dim parameter")
-    
+
     @classmethod
     def from_env(cls, prefix: str, model_type: ModelType) -> ModelConfig:
         """
@@ -306,21 +318,21 @@ class RerankerConfig:
 @dataclass
 class BackendConfig:
     """Complete backend configuration."""
-    
+
     # Model configurations
     llm: ModelConfig
     embedding: ModelConfig
     vision: Optional[ModelConfig] = None
     reranker: Optional[RerankerConfig] = None
     multimodal_embedding: Optional[ModelConfig] = None
-    
+
     # Storage configuration (will be converted to absolute paths in from_env)
     working_dir: str = "./rag_storage"
     upload_dir: str = "./uploads"
 
     # Chat storage configuration
     chat_db_path: str = "backend/data/chat.db"
-    
+
     # RAGAnything configuration
     parser: str = "mineru"  # or "docling"
     enable_parser_fallback: bool = True  # Fallback to alternative parser on failure
@@ -340,20 +352,20 @@ class BackendConfig:
     host: str = "0.0.0.0"
     port: int = 8000
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
-    
+
     @classmethod
     def from_env(cls) -> BackendConfig:
         """Create BackendConfig from environment variables."""
-        
+
         # Load model configurations
         llm = ModelConfig.from_env("LLM", ModelType.LLM)
         embedding = ModelConfig.from_env("EMBEDDING", ModelType.EMBEDDING)
-        
+
         # Optional vision model
         vision = None
         if os.getenv("VISION_MODEL_NAME"):
             vision = ModelConfig.from_env("VISION", ModelType.VISION)
-        
+
         # Optional reranker
         reranker = None
         if os.getenv("RERANKER_ENABLED", "false").lower() == "true":
@@ -365,19 +377,23 @@ class BackendConfig:
             multimodal_embedding = ModelConfig.from_env(
                 "MULTIMODAL_EMBEDDING", ModelType.EMBEDDING
             )
-        
+
         # Storage paths - convert to absolute paths
         working_dir = os.path.abspath(os.getenv("WORKING_DIR", "./rag_storage"))
         upload_dir = os.path.abspath(os.getenv("UPLOAD_DIR", "./uploads"))
 
         # Chat storage path
-        chat_db_path = os.path.abspath(os.getenv("CHAT_DB_PATH", "backend/data/chat.db"))
-        
+        chat_db_path = os.path.abspath(
+            os.getenv("CHAT_DB_PATH", "backend/data/chat.db")
+        )
+
         # RAGAnything settings
         parser = os.getenv("PARSER", "mineru")
         enable_image = os.getenv("ENABLE_IMAGE_PROCESSING", "true").lower() == "true"
         enable_table = os.getenv("ENABLE_TABLE_PROCESSING", "true").lower() == "true"
-        enable_equation = os.getenv("ENABLE_EQUATION_PROCESSING", "true").lower() == "true"
+        enable_equation = (
+            os.getenv("ENABLE_EQUATION_PROCESSING", "true").lower() == "true"
+        )
         mineru_device = os.getenv("MINERU_DEVICE")  # None means auto-detect
         mineru_vram_raw = os.getenv("MINERU_VRAM")
         mineru_vram: Optional[int] = None
@@ -388,15 +404,19 @@ class BackendConfig:
                 raise ValueError("MINERU_VRAM must be an integer (MiB)") from None
 
         # Background indexing settings
-        auto_indexing_enabled = os.getenv("AUTO_INDEXING_ENABLED", "true").lower() == "true"
+        auto_indexing_enabled = (
+            os.getenv("AUTO_INDEXING_ENABLED", "true").lower() == "true"
+        )
         indexing_scan_interval = int(os.getenv("INDEXING_SCAN_INTERVAL", "60"))
-        indexing_max_files_per_batch = int(os.getenv("INDEXING_MAX_FILES_PER_BATCH", "5"))
+        indexing_max_files_per_batch = int(
+            os.getenv("INDEXING_MAX_FILES_PER_BATCH", "5")
+        )
 
         # API server settings
         host = os.getenv("API_HOST", "0.0.0.0")
         port = int(os.getenv("API_PORT", "8000"))
         cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
-        
+
         return cls(
             llm=llm,
             embedding=embedding,
@@ -419,13 +439,13 @@ class BackendConfig:
             port=port,
             cors_origins=cors_origins,
         )
-    
+
     @classmethod
     def from_yaml(cls, config_path: str | Path) -> BackendConfig:
         """Load configuration from YAML file."""
         with open(config_path) as f:
             data = yaml.safe_load(f)
-        
+
         # Parse model configs
         llm_data = data["models"]["llm"]
         llm = ModelConfig(
@@ -437,7 +457,7 @@ class BackendConfig:
             temperature=llm_data.get("temperature", 0.7),
             max_tokens=llm_data.get("max_tokens"),
         )
-        
+
         embed_data = data["models"]["embedding"]
         embedding = ModelConfig(
             provider=ProviderType(embed_data["provider"]),
@@ -447,7 +467,7 @@ class BackendConfig:
             base_url=embed_data.get("base_url"),
             embedding_dim=embed_data["embedding_dim"],
         )
-        
+
         # Optional vision
         vision = None
         if "vision" in data["models"]:
@@ -459,7 +479,7 @@ class BackendConfig:
                 api_key=vision_data.get("api_key"),
                 base_url=vision_data.get("base_url"),
             )
-        
+
         # Optional reranker
         reranker = None
         if "reranker" in data and data["reranker"].get("enabled"):
@@ -484,7 +504,7 @@ class BackendConfig:
                 api_key=reranker_data.get("api_key"),
                 base_url=reranker_data.get("base_url"),
             )
-        
+
         return cls(
             llm=llm,
             embedding=embedding,
@@ -492,7 +512,9 @@ class BackendConfig:
             reranker=reranker,
             working_dir=os.path.abspath(data.get("working_dir", "./rag_storage")),
             upload_dir=os.path.abspath(data.get("upload_dir", "./uploads")),
-            chat_db_path=os.path.abspath(data.get("chat_db_path", "backend/data/chat.db")),
+            chat_db_path=os.path.abspath(
+                data.get("chat_db_path", "backend/data/chat.db")
+            ),
             parser=data.get("parser", "mineru"),
             enable_image_processing=data.get("enable_image_processing", True),
             enable_table_processing=data.get("enable_table_processing", True),

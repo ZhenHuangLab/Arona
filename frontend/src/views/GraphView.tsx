@@ -266,4 +266,3 @@ export const GraphView: React.FC = () => {
     </div>
   );
 };
-

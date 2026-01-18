@@ -90,9 +90,15 @@ async def _apply_config(
         try:
             llm_changed = old_config.llm != new_config.llm
             embedding_changed = old_config.embedding != new_config.embedding
-            reranker_changed = getattr(old_config, "reranker", None) != getattr(new_config, "reranker", None)
-            vision_changed = getattr(old_config, "vision", None) != getattr(new_config, "vision", None)
-            multimodal_embedding_changed = getattr(old_config, "multimodal_embedding", None) != getattr(new_config, "multimodal_embedding", None)
+            reranker_changed = getattr(old_config, "reranker", None) != getattr(
+                new_config, "reranker", None
+            )
+            vision_changed = getattr(old_config, "vision", None) != getattr(
+                new_config, "vision", None
+            )
+            multimodal_embedding_changed = getattr(
+                old_config, "multimodal_embedding", None
+            ) != getattr(new_config, "multimodal_embedding", None)
         except Exception:
             # Keep minimal list if dataclass comparison fails.
             pass
@@ -127,23 +133,33 @@ async def _apply_config(
         old_reranker_provider = None
 
         if embedding_changed:
-            old_embedding_provider = getattr(old_rag_service, "embedding_provider", None)
+            old_embedding_provider = getattr(
+                old_rag_service, "embedding_provider", None
+            )
             new_embedding_provider = None
             if prebuilt is not None:
                 new_embedding_provider = prebuilt.get("embedding_provider")  # type: ignore[assignment]
             if new_embedding_provider is None:
-                new_embedding_provider = ModelFactory.create_embedding_provider(new_config.embedding)
+                new_embedding_provider = ModelFactory.create_embedding_provider(
+                    new_config.embedding
+                )
             old_rag_service.embedding_provider = new_embedding_provider  # type: ignore[assignment]
-            old_rag_service.embedding_func = ModelFactory.create_embedding_func_from_provider(new_embedding_provider)  # type: ignore[arg-type]
+            old_rag_service.embedding_func = (
+                ModelFactory.create_embedding_func_from_provider(new_embedding_provider)
+            )  # type: ignore[arg-type]
 
         if multimodal_embedding_changed:
-            old_multimodal_embedding_provider = getattr(old_rag_service, "multimodal_embedding_provider", None)
+            old_multimodal_embedding_provider = getattr(
+                old_rag_service, "multimodal_embedding_provider", None
+            )
             if getattr(new_config, "multimodal_embedding", None):
                 new_mm_provider = None
                 if prebuilt is not None:
                     new_mm_provider = prebuilt.get("multimodal_embedding_provider")  # type: ignore[assignment]
                 if new_mm_provider is None:
-                    new_mm_provider = ModelFactory.create_embedding_provider(new_config.multimodal_embedding)  # type: ignore[arg-type]
+                    new_mm_provider = ModelFactory.create_embedding_provider(
+                        new_config.multimodal_embedding
+                    )  # type: ignore[arg-type]
                 old_rag_service.multimodal_embedding_provider = new_mm_provider  # type: ignore[assignment]
             else:
                 old_rag_service.multimodal_embedding_provider = None
@@ -172,9 +188,13 @@ async def _apply_config(
                 if prebuilt is not None:
                     new_reranker_func = prebuilt.get("reranker_func")  # type: ignore[assignment]
                 if new_reranker_func is None:
-                    new_reranker_func = ModelFactory.create_reranker(new_config.reranker)  # type: ignore[arg-type]
+                    new_reranker_func = ModelFactory.create_reranker(
+                        new_config.reranker
+                    )  # type: ignore[arg-type]
                 old_rag_service.reranker_func = new_reranker_func  # type: ignore[assignment]
-                old_rag_service.reranker_provider = getattr(new_reranker_func, "_provider", None)  # type: ignore[assignment]
+                old_rag_service.reranker_provider = getattr(
+                    new_reranker_func, "_provider", None
+                )  # type: ignore[assignment]
             else:
                 old_rag_service.reranker_func = None
                 old_rag_service.reranker_provider = None
@@ -198,7 +218,14 @@ async def _apply_config(
             except Exception:
                 rag_settings_changed = True
 
-        if llm_changed or embedding_changed or reranker_changed or vision_changed or multimodal_embedding_changed or rag_settings_changed:
+        if (
+            llm_changed
+            or embedding_changed
+            or reranker_changed
+            or vision_changed
+            or multimodal_embedding_changed
+            or rag_settings_changed
+        ):
             old_rag_service._rag_instance = None
 
         state.config = new_config
@@ -208,11 +235,17 @@ async def _apply_config(
     if getattr(new_config, "auto_indexing_enabled", False):
         index_status_service = getattr(state, "index_status_service", None)
         if index_status_service is not None:
-            indexer = BackgroundIndexer(new_config, state.rag_service, index_status_service)
+            indexer = BackgroundIndexer(
+                new_config, state.rag_service, index_status_service
+            )
             state.background_indexer = indexer
-            state.background_indexer_task = asyncio.create_task(indexer.run_periodic_scan())
+            state.background_indexer_task = asyncio.create_task(
+                indexer.run_periodic_scan()
+            )
         else:
-            logger.warning("index_status_service not found; background indexer will not be restarted")
+            logger.warning(
+                "index_status_service not found; background indexer will not be restarted"
+            )
             state.background_indexer = None
             state.background_indexer_task = None
     else:
@@ -222,36 +255,49 @@ async def _apply_config(
     # Best-effort shutdown of replaced heavy providers (avoid shutting down the whole service).
     if old_rag_service is not None:
         try:
-            if embedding_changed and old_embedding_provider is not None and hasattr(old_embedding_provider, "shutdown"):
+            if (
+                embedding_changed
+                and old_embedding_provider is not None
+                and hasattr(old_embedding_provider, "shutdown")
+            ):
                 await old_embedding_provider.shutdown()
-            if multimodal_embedding_changed and old_multimodal_embedding_provider is not None and hasattr(old_multimodal_embedding_provider, "shutdown"):
+            if (
+                multimodal_embedding_changed
+                and old_multimodal_embedding_provider is not None
+                and hasattr(old_multimodal_embedding_provider, "shutdown")
+            ):
                 await old_multimodal_embedding_provider.shutdown()
-            if reranker_changed and old_reranker_provider is not None and hasattr(old_reranker_provider, "shutdown"):
+            if (
+                reranker_changed
+                and old_reranker_provider is not None
+                and hasattr(old_reranker_provider, "shutdown")
+            ):
                 await old_reranker_provider.shutdown()
         except Exception as e:
-            logger.warning("Provider shutdown during hot-reload failed: %s", e, exc_info=True)
+            logger.warning(
+                "Provider shutdown during hot-reload failed: %s", e, exc_info=True
+            )
 
     return reloaded_components
 
 
 @router.post("/reload", response_model=ConfigReloadResponse)
 async def reload_configuration(
-    request: Request,
-    req: Optional[ConfigReloadRequest] = None
+    request: Request, req: Optional[ConfigReloadRequest] = None
 ):
     """
     Hot-reload configuration files without restarting the server.
-    
+
     This reloads configuration files and (by default) applies changes immediately
     by rebuilding BackendConfig and reinitializing model providers.
     """
     try:
         reloaded_files = []
         errors = {}
-        
+
         # Determine which files to reload
         config_files = req.config_files if req and req.config_files else None
-        
+
         # Project root
         project_root = Path(__file__).parent.parent.parent
 
@@ -272,46 +318,52 @@ async def reload_configuration(
                         break
                 if not config_files:
                     config_files = [".env"]
-        
+
         for config_file in config_files:
             config_path = project_root / config_file
-            
+
             if not config_path.exists():
                 errors[config_file] = f"File not found: {config_path}"
                 logger.warning(f"Config file not found: {config_path}")
                 continue
-            
+
             try:
                 # Reload environment file
                 if config_file.endswith(".env") or ".env." in config_file:
                     load_dotenv(dotenv_path=config_path, override=True)
                     reloaded_files.append(config_file)
                     logger.info(f"Reloaded environment file: {config_file}")
-                
+
                 # For YAML files, we would need to reload the config object
                 # This is more complex and requires reinitializing services
                 elif config_file.endswith(".yaml") or config_file.endswith(".yml"):
                     errors[config_file] = "YAML reload requires server restart"
-                    logger.warning(f"YAML reload not supported for hot-reload: {config_file}")
-                
+                    logger.warning(
+                        f"YAML reload not supported for hot-reload: {config_file}"
+                    )
+
                 else:
                     errors[config_file] = "Unsupported file type"
-            
+
             except Exception as e:
                 errors[config_file] = str(e)
                 logger.error(f"Error reloading {config_file}: {e}", exc_info=True)
-        
+
         # Determine status
         if errors and not reloaded_files:
             status_str = "failed"
             message = "Failed to reload any configuration files"
         elif errors:
             status_str = "partial"
-            message = f"Reloaded {len(reloaded_files)} file(s) with {len(errors)} error(s)"
+            message = (
+                f"Reloaded {len(reloaded_files)} file(s) with {len(errors)} error(s)"
+            )
         else:
             status_str = "success"
-            message = f"Successfully reloaded {len(reloaded_files)} configuration file(s)"
-        
+            message = (
+                f"Successfully reloaded {len(reloaded_files)} configuration file(s)"
+            )
+
         logger.info(f"Configuration reload: {status_str} - {message}")
 
         applied = False
@@ -347,12 +399,12 @@ async def reload_configuration(
             errors=errors,
             message=message + (" (applied)" if applied else ""),
         )
-    
+
     except Exception as e:
         logger.error(f"Configuration reload failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Configuration reload failed: {str(e)}"
+            detail=f"Configuration reload failed: {str(e)}",
         )
 
 
@@ -360,21 +412,25 @@ async def reload_configuration(
 async def get_current_config(request: Request):
     """
     Get current configuration settings.
-    
+
     Returns the current active configuration from the backend.
     """
     state = request.app.state
-    
+
     try:
         config = state.config
-        
+
         # Build response
         env_file_loaded = getattr(state, "env_file_loaded", None)
         env_file_display = env_file_loaded
         project_root = getattr(state, "project_root", None)
         if env_file_loaded and project_root:
             try:
-                env_file_display = str(Path(env_file_loaded).resolve().relative_to(Path(project_root).resolve()))
+                env_file_display = str(
+                    Path(env_file_loaded)
+                    .resolve()
+                    .relative_to(Path(project_root).resolve())
+                )
             except Exception:
                 env_file_display = env_file_loaded
 
@@ -400,13 +456,23 @@ async def get_current_config(request: Request):
                     "embedding_dim": config.embedding.embedding_dim,
                     "device": config.embedding.extra_params.get("device"),
                     "dtype": config.embedding.extra_params.get("dtype"),
-                    "attn_implementation": config.embedding.extra_params.get("attn_implementation"),
+                    "attn_implementation": config.embedding.extra_params.get(
+                        "attn_implementation"
+                    ),
                     "max_length": config.embedding.extra_params.get("max_length"),
-                    "default_instruction": config.embedding.extra_params.get("default_instruction"),
+                    "default_instruction": config.embedding.extra_params.get(
+                        "default_instruction"
+                    ),
                     "normalize": config.embedding.extra_params.get("normalize"),
-                    "allow_image_urls": config.embedding.extra_params.get("allow_image_urls"),
-                    "min_image_tokens": config.embedding.extra_params.get("min_image_tokens"),
-                    "max_image_tokens": config.embedding.extra_params.get("max_image_tokens"),
+                    "allow_image_urls": config.embedding.extra_params.get(
+                        "allow_image_urls"
+                    ),
+                    "min_image_tokens": config.embedding.extra_params.get(
+                        "min_image_tokens"
+                    ),
+                    "max_image_tokens": config.embedding.extra_params.get(
+                        "max_image_tokens"
+                    ),
                 },
             },
             storage={
@@ -418,9 +484,9 @@ async def get_current_config(request: Request):
                 "enable_image_processing": config.enable_image_processing,
                 "enable_table_processing": config.enable_table_processing,
                 "enable_equation_processing": config.enable_equation_processing,
-            }
+            },
         )
-        
+
         # Add vision model if configured
         if config.vision:
             response.models["vision"] = {
@@ -438,13 +504,15 @@ async def get_current_config(request: Request):
                 "embedding_dim": config.multimodal_embedding.embedding_dim,
                 "device": config.multimodal_embedding.extra_params.get("device"),
             }
-        
+
         # Add reranker if configured
         if config.reranker and config.reranker.enabled:
             response.models["reranker"] = {
                 "enabled": True,
                 "provider": config.reranker.provider,
-                "model_name": config.reranker.model_name if hasattr(config.reranker, 'model_name') else None,
+                "model_name": config.reranker.model_name
+                if hasattr(config.reranker, "model_name")
+                else None,
                 "model_path": config.reranker.model_path,
                 "device": config.reranker.device,
                 "dtype": config.reranker.dtype,
@@ -456,14 +524,14 @@ async def get_current_config(request: Request):
                 "allow_image_urls": getattr(config.reranker, "allow_image_urls", None),
                 "base_url": getattr(config.reranker, "base_url", None),
             }
-        
+
         return response
-    
+
     except Exception as e:
         logger.error(f"Failed to get current config: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get current config: {str(e)}"
+            detail=f"Failed to get current config: {str(e)}",
         )
 
 
@@ -490,15 +558,12 @@ async def get_indexing_config(request: Request):
         logger.error(f"Failed to get indexing config: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get indexing config: {str(e)}"
+            detail=f"Failed to get indexing config: {str(e)}",
         )
 
 
 @router.put("/indexing", response_model=IndexingConfigResponse)
-async def update_indexing_config(
-    request: Request,
-    update: IndexingConfigUpdate
-):
+async def update_indexing_config(request: Request, update: IndexingConfigUpdate):
     """
     Update indexing configuration at runtime.
 
@@ -515,15 +580,21 @@ async def update_indexing_config(
         # Reason: Only update fields that are explicitly provided (not None)
         if update.auto_indexing_enabled is not None:
             config.auto_indexing_enabled = update.auto_indexing_enabled
-            logger.info(f"Updated auto_indexing_enabled to {update.auto_indexing_enabled}")
+            logger.info(
+                f"Updated auto_indexing_enabled to {update.auto_indexing_enabled}"
+            )
 
         if update.indexing_scan_interval is not None:
             config.indexing_scan_interval = update.indexing_scan_interval
-            logger.info(f"Updated indexing_scan_interval to {update.indexing_scan_interval}")
+            logger.info(
+                f"Updated indexing_scan_interval to {update.indexing_scan_interval}"
+            )
 
         if update.indexing_max_files_per_batch is not None:
             config.indexing_max_files_per_batch = update.indexing_max_files_per_batch
-            logger.info(f"Updated indexing_max_files_per_batch to {update.indexing_max_files_per_batch}")
+            logger.info(
+                f"Updated indexing_max_files_per_batch to {update.indexing_max_files_per_batch}"
+            )
 
         # Return updated configuration
         return IndexingConfigResponse(
@@ -536,7 +607,7 @@ async def update_indexing_config(
         logger.error(f"Failed to update indexing config: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update indexing config: {str(e)}"
+            detail=f"Failed to update indexing config: {str(e)}",
         )
 
 
@@ -556,35 +627,36 @@ async def list_config_files():
         for env_file in [".env.backend", ".env", "env.example"]:
             env_path = project_root / env_file
             if env_path.exists():
-                config_files.append({
-                    "path": env_file,
-                    "type": "env",
-                    "exists": True,
-                    "size": env_path.stat().st_size
-                })
+                config_files.append(
+                    {
+                        "path": env_file,
+                        "type": "env",
+                        "exists": True,
+                        "size": env_path.stat().st_size,
+                    }
+                )
 
         # Check for YAML config files
         configs_dir = project_root / "configs"
         if configs_dir.exists():
             for yaml_file in configs_dir.glob("*.yaml"):
                 if not yaml_file.name.endswith(".example"):
-                    config_files.append({
-                        "path": f"configs/{yaml_file.name}",
-                        "type": "yaml",
-                        "exists": True,
-                        "size": yaml_file.stat().st_size
-                    })
+                    config_files.append(
+                        {
+                            "path": f"configs/{yaml_file.name}",
+                            "type": "yaml",
+                            "exists": True,
+                            "size": yaml_file.stat().st_size,
+                        }
+                    )
 
-        return {
-            "config_files": config_files,
-            "total": len(config_files)
-        }
+        return {"config_files": config_files, "total": len(config_files)}
 
     except Exception as e:
         logger.error(f"Failed to list config files: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list config files: {str(e)}"
+            detail=f"Failed to list config files: {str(e)}",
         )
 
 
@@ -667,7 +739,9 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
             status="noop",
             message="No changes provided",
             applied=False,
-            env_file=str(env_path.relative_to(project_root)) if env_path.is_relative_to(project_root) else str(env_path),
+            env_file=str(env_path.relative_to(project_root))
+            if env_path.is_relative_to(project_root)
+            else str(env_path),
         )
 
     lock = getattr(request.app.state, "config_reload_lock", None)
@@ -679,7 +753,9 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
         # Validate & build the new config/providers before persisting to disk.
         old_env = {k: os.environ.get(k) for k in env_updates.keys()}
         current_config = getattr(request.app.state, "config", None)
-        current_rag_service: Optional[RAGService] = getattr(request.app.state, "rag_service", None)
+        current_rag_service: Optional[RAGService] = getattr(
+            request.app.state, "rag_service", None
+        )
         if current_config is None and current_rag_service is not None:
             current_config = getattr(current_rag_service, "config", None)
 
@@ -701,8 +777,14 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
                 pass
             try:
                 reranker_func = prebuilt.get("reranker_func")
-                reranker_provider = getattr(reranker_func, "_provider", None) if reranker_func is not None else None
-                if reranker_provider is not None and hasattr(reranker_provider, "shutdown"):
+                reranker_provider = (
+                    getattr(reranker_func, "_provider", None)
+                    if reranker_func is not None
+                    else None
+                )
+                if reranker_provider is not None and hasattr(
+                    reranker_provider, "shutdown"
+                ):
                     await reranker_provider.shutdown()  # type: ignore[misc]
             except Exception:
                 pass
@@ -722,14 +804,28 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
                 try:
                     llm_changed = current_config.llm != new_config.llm
                     embedding_changed = current_config.embedding != new_config.embedding
-                    reranker_changed = getattr(current_config, "reranker", None) != getattr(new_config, "reranker", None)
-                    vision_changed = getattr(current_config, "vision", None) != getattr(new_config, "vision", None)
-                    multimodal_embedding_changed = getattr(current_config, "multimodal_embedding", None) != getattr(new_config, "multimodal_embedding", None)
+                    reranker_changed = getattr(
+                        current_config, "reranker", None
+                    ) != getattr(new_config, "reranker", None)
+                    vision_changed = getattr(current_config, "vision", None) != getattr(
+                        new_config, "vision", None
+                    )
+                    multimodal_embedding_changed = getattr(
+                        current_config, "multimodal_embedding", None
+                    ) != getattr(new_config, "multimodal_embedding", None)
                 except Exception:
                     # If comparisons fail, treat as changed so we validate/apply conservatively.
                     pass
 
-            if not any([llm_changed, embedding_changed, reranker_changed, vision_changed, multimodal_embedding_changed]):
+            if not any(
+                [
+                    llm_changed,
+                    embedding_changed,
+                    reranker_changed,
+                    vision_changed,
+                    multimodal_embedding_changed,
+                ]
+            ):
                 # No effective model changes; avoid rewriting env / reloading services.
                 for k, old_v in old_env.items():
                     if old_v is None:
@@ -740,7 +836,9 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
                     status="noop",
                     message="No effective changes (requested settings match current configuration)",
                     applied=False,
-                    env_file=str(env_path.relative_to(project_root)) if env_path.is_relative_to(project_root) else str(env_path),
+                    env_file=str(env_path.relative_to(project_root))
+                    if env_path.is_relative_to(project_root)
+                    else str(env_path),
                     reloaded_components=[],
                 )
 
@@ -750,13 +848,25 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
             if llm_changed:
                 prebuilt["llm_func"] = ModelFactory.create_llm_func(new_config.llm)
             if embedding_changed:
-                prebuilt["embedding_provider"] = ModelFactory.create_embedding_provider(new_config.embedding)
-            if multimodal_embedding_changed and getattr(new_config, "multimodal_embedding", None):
-                prebuilt["multimodal_embedding_provider"] = ModelFactory.create_embedding_provider(new_config.multimodal_embedding)  # type: ignore[arg-type]
+                prebuilt["embedding_provider"] = ModelFactory.create_embedding_provider(
+                    new_config.embedding
+                )
+            if multimodal_embedding_changed and getattr(
+                new_config, "multimodal_embedding", None
+            ):
+                prebuilt["multimodal_embedding_provider"] = (
+                    ModelFactory.create_embedding_provider(
+                        new_config.multimodal_embedding
+                    )
+                )  # type: ignore[arg-type]
             if vision_changed and getattr(new_config, "vision", None):
-                prebuilt["vision_func"] = ModelFactory.create_vision_func(new_config.vision)  # type: ignore[arg-type]
+                prebuilt["vision_func"] = ModelFactory.create_vision_func(
+                    new_config.vision
+                )  # type: ignore[arg-type]
             if reranker_changed and getattr(new_config, "reranker", None):
-                prebuilt["reranker_func"] = ModelFactory.create_reranker(new_config.reranker)  # type: ignore[arg-type]
+                prebuilt["reranker_func"] = ModelFactory.create_reranker(
+                    new_config.reranker
+                )  # type: ignore[arg-type]
         except Exception as e:
             # Restore env on failure
             for k, old_v in old_env.items():
@@ -794,7 +904,9 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
         applied = False
         if update.apply:
             try:
-                reloaded_components = await _apply_config(request, new_config, prebuilt=prebuilt)
+                reloaded_components = await _apply_config(
+                    request, new_config, prebuilt=prebuilt
+                )
                 applied = True
                 try:
                     request.app.state.env_file_loaded = str(env_path)

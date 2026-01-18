@@ -11,13 +11,13 @@ Comprehensive performance testing for LocalEmbeddingProvider including:
 Usage:
     # Run all tests
     python scripts/benchmark_local_embedding.py --mode all
-    
+
     # Run specific test
     python scripts/benchmark_local_embedding.py --mode throughput
     python scripts/benchmark_local_embedding.py --mode latency
     python scripts/benchmark_local_embedding.py --mode memory
     python scripts/benchmark_local_embedding.py --mode e2e
-    
+
     # Custom configuration
     python scripts/benchmark_local_embedding.py --device cuda:0 --batch-size 64
 """
@@ -27,7 +27,7 @@ import argparse
 import time
 import sys
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import numpy as np
 
 # Add project root to path
@@ -55,6 +55,7 @@ class GPUMemoryMonitor:
     def __init__(self, device: str | int = "cuda:0"):
         """Initialize memory monitor and normalize device to an index."""
         import torch
+
         self.torch = torch
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA not available")
@@ -99,9 +100,7 @@ class ThroughputBenchmark:
         self.provider = provider
 
     async def run(
-        self,
-        batch_sizes: List[int] = [100, 500, 1000],
-        text_length: str = "medium"
+        self, batch_sizes: List[int] = [100, 500, 1000], text_length: str = "medium"
     ) -> Dict[str, Any]:
         """
         Run throughput benchmark with concurrent requests.
@@ -138,10 +137,14 @@ class ThroughputBenchmark:
 
             for i in range(num_requests):
                 # Vary request size slightly for realism
-                request_size = min(texts_per_request + (i % 3), total_texts - i * texts_per_request)
+                request_size = min(
+                    texts_per_request + (i % 3), total_texts - i * texts_per_request
+                )
                 if request_size <= 0:
                     break
-                request_texts = [test_texts[j % len(test_texts)] for j in range(request_size)]
+                request_texts = [
+                    test_texts[j % len(test_texts)] for j in range(request_size)
+                ]
                 requests.append(request_texts)
 
             # Benchmark concurrent requests
@@ -172,12 +175,12 @@ class ThroughputBenchmark:
 
             # Check if meets target
             if throughput >= 100:
-                print(f"  ✓ Meets target (>= 100 texts/sec)")
+                print("  ✓ Meets target (>= 100 texts/sec)")
             else:
-                print(f"  ✗ Below target (>= 100 texts/sec)")
+                print("  ✗ Below target (>= 100 texts/sec)")
 
         return results
-    
+
     def _generate_test_texts(self, length: str = "medium") -> List[str]:
         """Generate test texts of different lengths."""
         if length == "short":
@@ -205,59 +208,57 @@ class ThroughputBenchmark:
 
 class LatencyBenchmark:
     """Latency benchmark for embedding service."""
-    
+
     def __init__(self, provider):
         """Initialize latency benchmark."""
         self.provider = provider
-    
+
     async def run(
-        self,
-        num_requests: int = 100,
-        text_length: str = "medium"
+        self, num_requests: int = 100, text_length: str = "medium"
     ) -> Dict[str, Any]:
         """
         Run latency benchmark.
-        
+
         Args:
             num_requests: Number of requests to test
             text_length: Text length ("short", "medium", "long")
-        
+
         Returns:
             Benchmark results with percentiles
         """
         print_section("Latency Benchmark")
-        
+
         # Generate test texts
         test_texts = self._generate_test_texts(text_length)
-        
+
         print(f"Testing {num_requests} requests...")
-        
+
         # Warmup
         _ = await self.provider.embed([test_texts[0]])
-        
+
         # Collect latencies
         latencies = []
-        
+
         for i in range(num_requests):
             text = test_texts[i % len(test_texts)]
-            
+
             start_time = time.perf_counter()
             _ = await self.provider.embed([text])
             end_time = time.perf_counter()
-            
+
             latency_ms = (end_time - start_time) * 1000
             latencies.append(latency_ms)
-            
+
             if (i + 1) % 20 == 0:
                 print(f"  Progress: {i + 1}/{num_requests}")
-        
+
         # Calculate percentiles
         latencies_array = np.array(latencies)
         p50 = np.percentile(latencies_array, 50)
         p95 = np.percentile(latencies_array, 95)
         p99 = np.percentile(latencies_array, 99)
         mean = np.mean(latencies_array)
-        
+
         results = {
             "num_requests": num_requests,
             "mean_ms": mean,
@@ -267,23 +268,23 @@ class LatencyBenchmark:
             "min_ms": np.min(latencies_array),
             "max_ms": np.max(latencies_array),
         }
-        
-        print(f"\nLatency Statistics:")
+
+        print("\nLatency Statistics:")
         print(f"  Mean:   {mean:.2f} ms")
         print(f"  p50:    {p50:.2f} ms")
         print(f"  p95:    {p95:.2f} ms")
         print(f"  p99:    {p99:.2f} ms")
         print(f"  Min:    {results['min_ms']:.2f} ms")
         print(f"  Max:    {results['max_ms']:.2f} ms")
-        
+
         # Check if meets target
         if p95 < 200:
-            print(f"\n  ✓ Meets target (p95 < 200ms)")
+            print("\n  ✓ Meets target (p95 < 200ms)")
         else:
-            print(f"\n  ✗ Above target (p95 < 200ms)")
-        
+            print("\n  ✗ Above target (p95 < 200ms)")
+
         return results
-    
+
     def _generate_test_texts(self, length: str = "medium") -> List[str]:
         """Generate test texts (same as ThroughputBenchmark)."""
         if length == "short":
@@ -318,9 +319,7 @@ class MemoryBenchmark:
         self.monitor = monitor
 
     async def run(
-        self,
-        batch_sizes: List[int] = [32, 64, 128],
-        text_length: str = "medium"
+        self, batch_sizes: List[int] = [32, 64, 128], text_length: str = "medium"
     ) -> Dict[str, Any]:
         """
         Run memory benchmark.
@@ -373,9 +372,9 @@ class MemoryBenchmark:
 
             # Check if meets target
             if memory_summary["peak_gb"] < 11.0:
-                print(f"  ✓ Meets target (< 11GB)")
+                print("  ✓ Meets target (< 11GB)")
             else:
-                print(f"  ✗ Exceeds target (< 11GB)")
+                print("  ✗ Exceeds target (< 11GB)")
 
         return results
 
@@ -438,7 +437,7 @@ class EndToEndTest:
                     "attn_implementation": "sdpa",
                     "max_batch_size": 32,
                     "max_wait_time": 0.1,
-                }
+                },
             )
 
             # Initialize provider
@@ -483,6 +482,7 @@ class EndToEndTest:
         except Exception as e:
             print(f"\n  ✗ End-to-end test failed: {e}")
             import traceback
+
             traceback.print_exc()
             return {
                 "success": False,
@@ -494,7 +494,7 @@ async def run_benchmarks(args):
     """Run selected benchmarks."""
     print_header("Local Embedding Service Performance Benchmark")
 
-    print(f"Configuration:")
+    print("Configuration:")
     print(f"  Device: {args.device}")
     print(f"  Model: {args.model}")
     print(f"  Mode: {args.mode}")
@@ -521,7 +521,7 @@ async def run_benchmarks(args):
                 "max_batch_size": args.batch_size,
                 "max_wait_time": args.max_wait_time,
                 "encode_batch_size": args.encode_batch_size,
-            }
+            },
         )
 
         provider = LocalEmbeddingProvider(embedding_config)
@@ -536,22 +536,19 @@ async def run_benchmarks(args):
         if args.mode in ["throughput", "all"]:
             benchmark = ThroughputBenchmark(provider)
             results["throughput"] = await benchmark.run(
-                batch_sizes=[100, 500, 1000],
-                text_length="medium"
+                batch_sizes=[100, 500, 1000], text_length="medium"
             )
 
         if args.mode in ["latency", "all"]:
             benchmark = LatencyBenchmark(provider)
             results["latency"] = await benchmark.run(
-                num_requests=100,
-                text_length="medium"
+                num_requests=100, text_length="medium"
             )
 
         if args.mode in ["memory", "all"]:
             benchmark = MemoryBenchmark(provider, monitor)
             results["memory"] = await benchmark.run(
-                batch_sizes=[32, 64, 128],
-                text_length="medium"
+                batch_sizes=[32, 64, 128], text_length="medium"
             )
 
         if args.mode in ["e2e", "all"]:
@@ -616,12 +613,12 @@ def print_summary(results: Dict[str, Any], mode: str):
             all_passed = False
 
     # Overall status
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     if all_passed:
         print("  ✓ ALL TESTS PASSED")
     else:
         print("  ✗ SOME TESTS FAILED")
-    print("="*80)
+    print("=" * 80)
 
 
 def main():
@@ -633,48 +630,47 @@ def main():
         "--mode",
         choices=["throughput", "latency", "memory", "e2e", "all"],
         default="all",
-        help="Benchmark mode to run"
+        help="Benchmark mode to run",
     )
     parser.add_argument(
-        "--device",
-        default="cuda:0",
-        help="GPU device to use (default: cuda:0)"
+        "--device", default="cuda:0", help="GPU device to use (default: cuda:0)"
     )
     parser.add_argument(
         "--model",
         default="Qwen/Qwen3-Embedding-4B",
-        help="Model name (default: Qwen/Qwen3-Embedding-4B)"
+        help="Model name (default: Qwen/Qwen3-Embedding-4B)",
     )
     parser.add_argument(
         "--batch-size",
         type=int,
         default=32,
-        help="Batch size for provider (default: 32)"
+        help="Batch size for provider (default: 32)",
     )
     parser.add_argument(
         "--encode-batch-size",
         type=int,
         default=128,
-        help="Internal encode() batch size for sentence-transformers (default: 128)"
+        help="Internal encode() batch size for sentence-transformers (default: 128)",
     )
     parser.add_argument(
         "--max-wait-time",
         type=float,
         default=0.1,
-        help="Max wait time (seconds) for dynamic batching (default: 0.1)"
+        help="Max wait time (seconds) for dynamic batching (default: 0.1)",
     )
 
     args = parser.parse_args()
 
     # Run benchmarks
     try:
-        results = asyncio.run(run_benchmarks(args))
+        asyncio.run(run_benchmarks(args))
     except KeyboardInterrupt:
         print("\n\nBenchmark interrupted by user")
         sys.exit(1)
     except Exception as e:
         print(f"\n\nBenchmark failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

@@ -10,8 +10,6 @@ Instead creates a minimal FastAPI app with:
 
 from __future__ import annotations
 
-import os
-import tempfile
 import uuid
 import json
 from pathlib import Path
@@ -118,7 +116,11 @@ def mock_config(temp_upload_dir: str) -> SimpleNamespace:
 
 
 @pytest.fixture
-def app(chat_store: ChatStore, mock_rag_service: MockRAGService, mock_config: SimpleNamespace) -> FastAPI:
+def app(
+    chat_store: ChatStore,
+    mock_rag_service: MockRAGService,
+    mock_config: SimpleNamespace,
+) -> FastAPI:
     """Create a minimal FastAPI app for testing."""
     app = FastAPI()
     app.state.chat_store = chat_store
@@ -215,7 +217,9 @@ class TestListSessions:
         assert data["next_cursor"] is not None
 
         # Get next page
-        response = client.get(f"/api/chat/sessions?limit=2&cursor={data['next_cursor']}")
+        response = client.get(
+            f"/api/chat/sessions?limit=2&cursor={data['next_cursor']}"
+        )
         assert response.status_code == 200
         data2 = response.json()
         assert len(data2["sessions"]) == 2
@@ -558,7 +562,9 @@ class TestTurnIdempotency:
 class TestTurnFailure:
     """Tests for turn failure handling."""
 
-    def test_turn_rag_service_failure(self, client: TestClient, mock_rag_service: MockRAGService):
+    def test_turn_rag_service_failure(
+        self, client: TestClient, mock_rag_service: MockRAGService
+    ):
         """RAG service failure should return failed turn."""
         create_resp = client.post("/api/chat/sessions", json={})
         session_id = create_resp.json()["id"]
@@ -584,7 +590,9 @@ class TestTurnFailure:
 class TestTurnFailedReplay:
     """Tests for replaying failed turns (idempotency)."""
 
-    def test_failed_turn_replay_returns_same_error(self, client: TestClient, mock_rag_service: MockRAGService):
+    def test_failed_turn_replay_returns_same_error(
+        self, client: TestClient, mock_rag_service: MockRAGService
+    ):
         create_resp = client.post("/api/chat/sessions", json={})
         session_id = create_resp.json()["id"]
 
@@ -615,7 +623,9 @@ class TestTurnFailedReplay:
 class TestTurnModeOverride:
     """Tests for mode override (always uses hybrid)."""
 
-    def test_mode_ignored_uses_hybrid(self, client: TestClient, mock_rag_service: MockRAGService):
+    def test_mode_ignored_uses_hybrid(
+        self, client: TestClient, mock_rag_service: MockRAGService
+    ):
         """Mode parameter should be ignored; always uses hybrid."""
         create_resp = client.post("/api/chat/sessions", json={})
         session_id = create_resp.json()["id"]
@@ -639,7 +649,9 @@ class TestTurnModeOverride:
 class TestTurnMultimodal:
     """Tests for multimodal turn behavior (img_base64 persisted to disk)."""
 
-    def test_turn_with_img_base64_persists_file(self, client: TestClient, mock_config: SimpleNamespace):
+    def test_turn_with_img_base64_persists_file(
+        self, client: TestClient, mock_config: SimpleNamespace
+    ):
         create_resp = client.post("/api/chat/sessions", json={})
         session_id = create_resp.json()["id"]
 
@@ -651,7 +663,10 @@ class TestTurnMultimodal:
             json={
                 "request_id": str(uuid.uuid4()),
                 "query": "What is in this image?",
-                "multimodal_content": {"img_base64": img_base64, "img_mime_type": "image/png"},
+                "multimodal_content": {
+                    "img_base64": img_base64,
+                    "img_mime_type": "image/png",
+                },
             },
         )
         assert resp.status_code == 200
@@ -673,7 +688,10 @@ class TestTurnMultimodal:
             json={
                 "request_id": str(uuid.uuid4()),
                 "query": "Hello",
-                "multimodal_content": {"img_base64": "not-base64!!!", "img_mime_type": "image/png"},
+                "multimodal_content": {
+                    "img_base64": "not-base64!!!",
+                    "img_mime_type": "image/png",
+                },
             },
         )
         assert resp.status_code == 400
@@ -683,7 +701,9 @@ class TestTurnMultimodal:
 class TestTurnStreamAPI:
     """Tests for POST /sessions/{session_id}/turn:stream."""
 
-    def test_turn_stream_success(self, client: TestClient, mock_rag_service: MockRAGService):
+    def test_turn_stream_success(
+        self, client: TestClient, mock_rag_service: MockRAGService
+    ):
         create_resp = client.post("/api/chat/sessions", json={"title": "Stream Test"})
         session_id = create_resp.json()["id"]
 
@@ -702,7 +722,11 @@ class TestTurnStreamAPI:
             for raw_line in resp.iter_lines():
                 if not raw_line:
                     continue
-                line = raw_line.decode("utf-8") if isinstance(raw_line, (bytes, bytearray)) else raw_line
+                line = (
+                    raw_line.decode("utf-8")
+                    if isinstance(raw_line, (bytes, bytearray))
+                    else raw_line
+                )
                 assert line.startswith("data: ")
                 payload = json.loads(line[len("data: ") :])
                 if payload.get("type") == "delta":
@@ -756,14 +780,19 @@ class TestIntegrationFlow:
     def test_full_conversation_flow(self, client: TestClient):
         """Test full conversation: create session -> multiple turns -> list messages."""
         # Create session
-        create_resp = client.post("/api/chat/sessions", json={"title": "Test Conversation"})
+        create_resp = client.post(
+            "/api/chat/sessions", json={"title": "Test Conversation"}
+        )
         assert create_resp.status_code == 201
         session_id = create_resp.json()["id"]
 
         # First turn
         turn1_resp = client.post(
             f"/api/chat/sessions/{session_id}/turn",
-            json={"request_id": str(uuid.uuid4()), "query": "What is machine learning?"},
+            json={
+                "request_id": str(uuid.uuid4()),
+                "query": "What is machine learning?",
+            },
         )
         assert turn1_resp.status_code == 200
 

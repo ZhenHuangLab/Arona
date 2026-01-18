@@ -4,19 +4,19 @@ import type { IndexStatusListResponse } from '@/types/index-status';
 
 /**
  * useIndexStatus Hook
- * 
+ *
  * Custom hook for fetching document index status with React Query.
- * 
+ *
  * Features:
  * - Fetch index status for all documents
  * - Automatic polling every 10 seconds
  * - Loading and error states
  * - Manual refetch capability
- * 
+ *
  * Usage:
  * ```tsx
  * const { data, isLoading, error, refetch } = useIndexStatus();
- * 
+ *
  * if (data) {
  *   const status = data.find(s => s.file_path === documentPath);
  * }
@@ -43,4 +43,3 @@ export function useIndexStatus() {
     refetch,
   };
 }
-

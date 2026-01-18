@@ -43,14 +43,14 @@ const STATUS_CONFIG = {
 
 /**
  * IndexStatusBadge Component
- * 
+ *
  * Displays document indexing status with color-coded badge and icon.
- * 
+ *
  * Features:
  * - Color-coded status: pending (gray), processing (yellow), indexed (green), failed (red)
  * - Animated spinner for processing status
  * - Error message display via title attribute for failed status
- * 
+ *
  * Usage:
  * ```tsx
  * <IndexStatusBadge status="processing" />
@@ -90,4 +90,3 @@ export function IndexStatusBadge({
     </Badge>
   );
 }
-

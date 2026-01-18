@@ -1,13 +1,13 @@
 /**
  * Configuration Type Definitions
- * 
+ *
  * TypeScript interfaces for indexing configuration and trigger responses.
  * Matches backend Pydantic models from backend/models/config.py and backend/models/index_status.py
  */
 
 /**
  * Indexing Configuration
- * 
+ *
  * Configuration for automatic background indexing.
  * Returned by GET /api/config/indexing
  * Used in PUT /api/config/indexing (all fields optional for partial updates)
@@ -17,14 +17,14 @@ export interface IndexingConfig {
    * Whether automatic background indexing is enabled
    */
   auto_indexing_enabled: boolean;
-  
+
   /**
    * Seconds between background scans for new files
    * Validation: Must be >= 1
    * Note: Backend uses SECONDS, not minutes!
    */
   indexing_scan_interval: number;
-  
+
   /**
    * Maximum number of files to process per iteration
    * Validation: Must be >= 1
@@ -34,7 +34,7 @@ export interface IndexingConfig {
 
 /**
  * Indexing Configuration Update Request
- * 
+ *
  * Request body for PUT /api/config/indexing
  * All fields are optional to support partial updates
  */
@@ -114,4 +114,3 @@ export interface ReindexResponse {
    */
   message: string;
 }
-

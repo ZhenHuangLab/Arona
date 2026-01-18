@@ -413,10 +413,13 @@ class QueryMixin:
                         or content.get("file_path")
                     )
                     if isinstance(img_path, str) and img_path.strip():
-                        header = "Query Image" if content_type == "image" else "Query Table Image"
+                        header = (
+                            "Query Image"
+                            if content_type == "image"
+                            else "Query Table Image"
+                        )
                         enhanced_parts.append(
-                            f"\n{header}:\n"
-                            f"Image Path: {img_path.strip()}"
+                            f"\n{header}:\n" f"Image Path: {img_path.strip()}"
                         )
 
                 if processor:
@@ -578,7 +581,9 @@ class QueryMixin:
         """
         # Handle None or empty prompt
         if not prompt:
-            self.logger.warning("Received None or empty prompt in _process_image_paths_for_vlm")
+            self.logger.warning(
+                "Received None or empty prompt in _process_image_paths_for_vlm"
+            )
             return "", 0
 
         enhanced_prompt = prompt

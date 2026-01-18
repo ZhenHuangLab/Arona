@@ -26,7 +26,6 @@ from fastapi import APIRouter, Body, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from backend.models.chat import (
-    ChatMessage,
     ChatSession,
     CreateSessionRequest,
     DeleteSessionResponse,
@@ -48,7 +47,9 @@ DEFAULT_CHAT_MODE = "hybrid"
 MAX_QUERY_IMAGE_BYTES = 10 * 1024 * 1024
 
 
-def _make_error(code: str, message: str, extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def _make_error(
+    code: str, message: str, extra: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     return ErrorDetail(code=code, message=message, extra=extra).model_dump()
 
 
@@ -120,7 +121,9 @@ def _decode_image_base64(*, img_base64: str) -> tuple[bytes, str]:
     return image_bytes, ext
 
 
-def _persist_query_image_bytes(*, image_bytes: bytes, upload_dir: Path, ext: str) -> tuple[str, str]:
+def _persist_query_image_bytes(
+    *, image_bytes: bytes, upload_dir: Path, ext: str
+) -> tuple[str, str]:
     """
     Persist image bytes to uploads/query_images and return (absolute_path, sha16).
     """
@@ -164,7 +167,9 @@ def _sse(data: dict[str, Any]) -> str:
 # =============================================================================
 
 
-@router.post("/sessions", response_model=ChatSession, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/sessions", response_model=ChatSession, status_code=status.HTTP_201_CREATED
+)
 async def create_session(
     request: Request,
     body: CreateSessionRequest = Body(default_factory=CreateSessionRequest),
@@ -213,7 +218,9 @@ async def list_sessions(
 @router.get("/search", response_model=SessionListResponse)
 async def search_sessions(
     request: Request,
-    q: str = Query(..., min_length=1, description="Search query (title or message content)"),
+    q: str = Query(
+        ..., min_length=1, description="Search query (title or message content)"
+    ),
     limit: int = Query(default=20, ge=1, le=100),
     cursor: Optional[str] = Query(default=None),
 ) -> SessionListResponse:
@@ -263,7 +270,9 @@ async def update_session(
     body: UpdateSessionRequest,
 ) -> ChatSession:
     store = _get_chat_store(request)
-    session = store.update_session(session_id=session_id, title=body.title, metadata=body.metadata)
+    session = store.update_session(
+        session_id=session_id, title=body.title, metadata=body.metadata
+    )
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -286,9 +295,13 @@ async def delete_session(
         if deleted_at is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=_make_error("SESSION_NOT_FOUND", f"Session {session_id} not found"),
+                detail=_make_error(
+                    "SESSION_NOT_FOUND", f"Session {session_id} not found"
+                ),
             )
-        return DeleteSessionResponse(id=session_id, deleted=True, hard=False, deleted_at=deleted_at)
+        return DeleteSessionResponse(
+            id=session_id, deleted=True, hard=False, deleted_at=deleted_at
+        )
 
     deleted = store.delete_session(session_id, hard=hard)
     if not deleted:
@@ -298,7 +311,9 @@ async def delete_session(
         )
 
     deleted_at = None if hard else store.get_session_deleted_at(session_id)
-    return DeleteSessionResponse(id=session_id, deleted=True, hard=hard, deleted_at=deleted_at)
+    return DeleteSessionResponse(
+        id=session_id, deleted=True, hard=hard, deleted_at=deleted_at
+    )
 
 
 # =============================================================================
@@ -321,7 +336,9 @@ async def list_messages(
         if "not found or deleted" in msg:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=_make_error("SESSION_NOT_FOUND", f"Session {session_id} not found"),
+                detail=_make_error(
+                    "SESSION_NOT_FOUND", f"Session {session_id} not found"
+                ),
             ) from exc
         if "INVALID_CURSOR" in msg:
             raise HTTPException(
@@ -392,7 +409,9 @@ async def create_turn(
     if body.multimodal_content and body.multimodal_content.img_base64:
         upload_dir = _get_upload_dir(request)
         try:
-            image_bytes, ext = _decode_image_base64(img_base64=body.multimodal_content.img_base64)
+            image_bytes, ext = _decode_image_base64(
+                img_base64=body.multimodal_content.img_base64
+            )
             img_path, img_sha16 = _persist_query_image_bytes(
                 image_bytes=image_bytes, upload_dir=upload_dir, ext=ext
             )
@@ -402,7 +421,9 @@ async def create_turn(
                 detail=_make_error("MULTIMODAL_INVALID", str(exc)),
             ) from exc
 
-    payload_hash = _compute_turn_payload_hash(body=body, mode=mode, image_sha16=img_sha16)
+    payload_hash = _compute_turn_payload_hash(
+        body=body, mode=mode, image_sha16=img_sha16
+    )
 
     existing = store.get_turn(request_id)
     if existing is not None:
@@ -430,9 +451,15 @@ async def create_turn(
                 ),
             )
 
-        user_message = store.get_message(existing.user_message_id) if existing.user_message_id else None
+        user_message = (
+            store.get_message(existing.user_message_id)
+            if existing.user_message_id
+            else None
+        )
         assistant_message = (
-            store.get_message(existing.assistant_message_id) if existing.assistant_message_id else None
+            store.get_message(existing.assistant_message_id)
+            if existing.assistant_message_id
+            else None
         )
 
         if user_message is None:
@@ -452,7 +479,10 @@ async def create_turn(
             user_message=user_message,
             assistant_message=assistant_message,
             error=(
-                {"code": "LLM_ERROR", "message": existing.error_detail or "Unknown error"}
+                {
+                    "code": "LLM_ERROR",
+                    "message": existing.error_detail or "Unknown error",
+                }
                 if existing.status == TurnStatus.FAILED
                 else None
             ),
@@ -538,7 +568,9 @@ async def create_turn(
                     **kwargs,
                 )
             else:
-                assistant_content = await rag_service.query(query=query, mode=mode, **kwargs)
+                assistant_content = await rag_service.query(
+                    query=query, mode=mode, **kwargs
+                )
             llm_error = None
         except Exception as exc:  # noqa: BLE001
             logger.error("RAG service query failed: %s", exc, exc_info=True)
@@ -640,7 +672,9 @@ async def create_turn_stream(
     if body.multimodal_content and body.multimodal_content.img_base64:
         upload_dir = _get_upload_dir(request)
         try:
-            image_bytes, ext = _decode_image_base64(img_base64=body.multimodal_content.img_base64)
+            image_bytes, ext = _decode_image_base64(
+                img_base64=body.multimodal_content.img_base64
+            )
             img_path, img_sha16 = _persist_query_image_bytes(
                 image_bytes=image_bytes, upload_dir=upload_dir, ext=ext
             )
@@ -650,7 +684,9 @@ async def create_turn_stream(
                 detail=_make_error("MULTIMODAL_INVALID", str(exc)),
             ) from exc
 
-    payload_hash = _compute_turn_payload_hash(body=body, mode=mode, image_sha16=img_sha16)
+    payload_hash = _compute_turn_payload_hash(
+        body=body, mode=mode, image_sha16=img_sha16
+    )
 
     existing = store.get_turn(request_id)
     if existing is not None:
@@ -678,9 +714,15 @@ async def create_turn_stream(
                 ),
             )
 
-        user_message = store.get_message(existing.user_message_id) if existing.user_message_id else None
+        user_message = (
+            store.get_message(existing.user_message_id)
+            if existing.user_message_id
+            else None
+        )
         assistant_message = (
-            store.get_message(existing.assistant_message_id) if existing.assistant_message_id else None
+            store.get_message(existing.assistant_message_id)
+            if existing.assistant_message_id
+            else None
         )
 
         if user_message is None:
@@ -699,7 +741,10 @@ async def create_turn_stream(
             user_message=user_message,
             assistant_message=assistant_message,
             error=(
-                {"code": "LLM_ERROR", "message": existing.error_detail or "Unknown error"}
+                {
+                    "code": "LLM_ERROR",
+                    "message": existing.error_detail or "Unknown error",
+                }
                 if existing.status == TurnStatus.FAILED
                 else None
             ),
@@ -806,12 +851,16 @@ async def create_turn_stream(
             else:
                 # Prefer a dedicated streaming API if present; otherwise try lightrag stream=True.
                 if hasattr(rag_service, "query_stream"):
-                    stream_iter = rag_service.query_stream(query=query, mode=mode, **kwargs)
+                    stream_iter = rag_service.query_stream(
+                        query=query, mode=mode, **kwargs
+                    )
                 else:
                     stream_iter = None
 
                 if stream_iter is None:
-                    assistant_content = await rag_service.query(query=query, mode=mode, **kwargs)
+                    assistant_content = await rag_service.query(
+                        query=query, mode=mode, **kwargs
+                    )
                     if isinstance(assistant_content, str) and assistant_content:
                         assistant_parts.append(assistant_content)
                         yield _sse({"type": "delta", "delta": assistant_content})
@@ -895,7 +944,9 @@ async def create_turn_stream(
             )
             yield _sse({"type": "final", "response": final.model_dump()})
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to persist assistant message (stream): %s", exc, exc_info=True)
+            logger.error(
+                "Failed to persist assistant message (stream): %s", exc, exc_info=True
+            )
             try:
                 store.fail_turn(request_id, f"Failed to write assistant message: {exc}")
             except Exception:  # noqa: BLE001
@@ -906,7 +957,10 @@ async def create_turn_stream(
                 status=TurnStatus.FAILED,
                 user_message=user_message,
                 assistant_message=None,
-                error={"code": "STORAGE_ERROR", "message": "Failed to write assistant message"},
+                error={
+                    "code": "STORAGE_ERROR",
+                    "message": "Failed to write assistant message",
+                },
             )
             yield _sse({"type": "final", "response": final.model_dump()})
 

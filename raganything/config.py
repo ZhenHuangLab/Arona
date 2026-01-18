@@ -73,7 +73,9 @@ class RAGAnythingConfig:
     )
     """Device for MinerU model inference (e.g., 'cpu', 'cuda', 'cuda:1')."""
 
-    mineru_vram: int | None = field(default=(get_env_value("MINERU_VRAM", 0, int) or None))
+    mineru_vram: int | None = field(
+        default=(get_env_value("MINERU_VRAM", 0, int) or None)
+    )
     """Upper limit of GPU memory (MiB) for a single MinerU process (pipeline backend)."""
 
     # Batch Processing Configuration
@@ -161,9 +163,7 @@ class RAGAnythingConfig:
     )
     """Request timeout (seconds) for Ollama HTTP calls."""
 
-    ollama_max_retries: int = field(
-        default=get_env_value("OLLAMA_MAX_RETRIES", 2, int)
-    )
+    ollama_max_retries: int = field(default=get_env_value("OLLAMA_MAX_RETRIES", 2, int))
     """Number of retry attempts for transient Ollama failures."""
 
     ollama_retry_backoff: float = field(
@@ -173,9 +173,7 @@ class RAGAnythingConfig:
 
     # Reranker Configuration
     # ---
-    enable_rerank: bool = field(
-        default=get_env_value("ENABLE_RERANK", True, bool)
-    )
+    enable_rerank: bool = field(default=get_env_value("ENABLE_RERANK", True, bool))
     """Toggle the FlagEmbedding reranker stage for retrieval results."""
 
     reranker_model_path: str = field(

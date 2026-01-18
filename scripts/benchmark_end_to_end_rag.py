@@ -25,7 +25,6 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-import numpy as np
 
 # Project root in path
 project_root = Path(__file__).parent.parent
@@ -67,12 +66,16 @@ async def run_test(args) -> Dict[str, Any]:
         arr = await provider.embed(texts)
         return arr
 
-    ef = EmbeddingFunc(embedding_dim=provider.embedding_dim, max_token_size=8192, func=embed_func)
+    ef = EmbeddingFunc(
+        embedding_dim=provider.embedding_dim, max_token_size=8192, func=embed_func
+    )
 
     # 3) Initialize LightRAG (separate workdir for test)
     workdir = Path(args.workdir)
     workdir.mkdir(parents=True, exist_ok=True)
-    rag = LightRAG(working_dir=str(workdir), embedding_func=ef, auto_manage_storages_states=True)
+    rag = LightRAG(
+        working_dir=str(workdir), embedding_func=ef, auto_manage_storages_states=True
+    )
     rag.initialize_storages()
 
     # 4) Insert tiny corpus
@@ -90,7 +93,9 @@ async def run_test(args) -> Dict[str, Any]:
     await insert_doc(doc_cn, "doc-cn")
 
     # 5) Query (retrieval-only path)
-    qp = QueryParam(mode="local", only_need_context=True, top_k=5, include_references=True)
+    qp = QueryParam(
+        mode="local", only_need_context=True, top_k=5, include_references=True
+    )
     q = args.query
     result = await rag.aquery_data(q, qp)
 
@@ -125,7 +130,10 @@ def main():
         help="Internal encode() batch size for sentence-transformers",
     )
     parser.add_argument(
-        "--max-wait-time", type=float, default=0.1, help="Max wait time (s) for batching"
+        "--max-wait-time",
+        type=float,
+        default=0.1,
+        help="Max wait time (s) for batching",
     )
     parser.add_argument(
         "--workdir",
@@ -154,6 +162,7 @@ def main():
     except Exception as e:
         print(f"\n✗ E2E test failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

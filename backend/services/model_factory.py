@@ -25,53 +25,65 @@ logger = logging.getLogger(__name__)
 
 class ModelFactory:
     """Factory for creating model providers."""
-    
+
     @staticmethod
     def create_llm_provider(config: ModelConfig) -> BaseLLMProvider:
         """
         Create LLM provider from configuration.
-        
+
         Args:
             config: Model configuration
-            
+
         Returns:
             LLM provider instance
         """
         if config.model_type != ModelType.LLM:
             raise ValueError(f"Expected LLM model type, got {config.model_type}")
-        
-        if config.provider in [ProviderType.OPENAI, ProviderType.AZURE, ProviderType.CUSTOM, ProviderType.LOCAL]:
+
+        if config.provider in [
+            ProviderType.OPENAI,
+            ProviderType.AZURE,
+            ProviderType.CUSTOM,
+            ProviderType.LOCAL,
+        ]:
             from backend.providers.openai import OpenAILLMProvider
+
             return OpenAILLMProvider(config)
         elif config.provider == ProviderType.ANTHROPIC:
             # TODO: Implement Anthropic provider
             raise NotImplementedError("Anthropic provider not yet implemented")
         else:
             raise ValueError(f"Unsupported provider: {config.provider}")
-    
+
     @staticmethod
     def create_vision_provider(config: ModelConfig) -> BaseVisionProvider:
         """
         Create vision provider from configuration.
-        
+
         Args:
             config: Model configuration
-            
+
         Returns:
             Vision provider instance
         """
         if config.model_type != ModelType.VISION:
             raise ValueError(f"Expected VISION model type, got {config.model_type}")
-        
-        if config.provider in [ProviderType.OPENAI, ProviderType.AZURE, ProviderType.CUSTOM, ProviderType.LOCAL]:
+
+        if config.provider in [
+            ProviderType.OPENAI,
+            ProviderType.AZURE,
+            ProviderType.CUSTOM,
+            ProviderType.LOCAL,
+        ]:
             from backend.providers.openai import OpenAIVisionProvider
+
             return OpenAIVisionProvider(config)
         elif config.provider == ProviderType.ANTHROPIC:
             # TODO: Implement Anthropic vision provider
             raise NotImplementedError("Anthropic vision provider not yet implemented")
         else:
             raise ValueError(f"Unsupported provider: {config.provider}")
-    
+
     @staticmethod
     def create_embedding_provider(config: ModelConfig) -> BaseEmbeddingProvider:
         """
@@ -91,11 +103,16 @@ class ModelFactory:
 
         # Local GPU embedding is explicitly enabled via provider=local_gpu.
         # Backward-compat: provider=local + cuda device + no base_url also means local GPU.
-        is_local_gpu = (
-            config.provider == ProviderType.LOCAL_GPU
-            or (config.provider == ProviderType.LOCAL and config.base_url is None and is_cuda_device)
+        is_local_gpu = config.provider == ProviderType.LOCAL_GPU or (
+            config.provider == ProviderType.LOCAL
+            and config.base_url is None
+            and is_cuda_device
         )
-        if config.provider == ProviderType.LOCAL and config.base_url is None and is_cuda_device:
+        if (
+            config.provider == ProviderType.LOCAL
+            and config.base_url is None
+            and is_cuda_device
+        ):
             logger.warning(
                 "Embedding provider configured as provider=local with cuda device but no base_url; "
                 "treating as local GPU provider for backward compatibility. "
@@ -115,15 +132,16 @@ class ModelFactory:
             is_multimodal = "gme" in model_name_lower or "qwen2-vl" in model_name_lower
             if is_multimodal:
                 try:
-                    from backend.providers.local_embedding import MultimodalEmbeddingProvider
+                    from backend.providers.local_embedding import (
+                        MultimodalEmbeddingProvider,
+                    )
                 except ImportError as e:
                     raise ImportError(
                         "Failed to import local GPU multimodal embedding provider. "
                         "This usually means your PyTorch/CUDA runtime is not correctly installed. "
                         "If you don't need local GPU embedding, configure an API-based provider "
                         "(e.g. EMBEDDING_PROVIDER=openai/custom) instead. "
-                        "Original error: "
-                        + str(e)
+                        "Original error: " + str(e)
                     ) from e
 
                 return MultimodalEmbeddingProvider(config)
@@ -136,29 +154,36 @@ class ModelFactory:
                     "This usually means your PyTorch/CUDA runtime is not correctly installed. "
                     "If you don't need local GPU embedding, configure an API-based provider "
                     "(e.g. EMBEDDING_PROVIDER=openai/custom) instead. "
-                    "Original error: "
-                    + str(e)
+                    "Original error: " + str(e)
                 ) from e
 
             return LocalEmbeddingProvider(config)
 
         # Check if this is a Jina model (by model name or base URL)
-        is_jina = (
-            "jina" in config.model_name.lower() or
-            (config.base_url and "jina.ai" in config.base_url.lower())
+        is_jina = "jina" in config.model_name.lower() or (
+            config.base_url and "jina.ai" in config.base_url.lower()
         )
 
         if is_jina:
             from backend.providers.jina import JinaEmbeddingProvider
+
             return JinaEmbeddingProvider(config)
-        elif config.provider in [ProviderType.OPENAI, ProviderType.AZURE, ProviderType.CUSTOM, ProviderType.LOCAL]:
+        elif config.provider in [
+            ProviderType.OPENAI,
+            ProviderType.AZURE,
+            ProviderType.CUSTOM,
+            ProviderType.LOCAL,
+        ]:
             from backend.providers.openai import OpenAIEmbeddingProvider
+
             return OpenAIEmbeddingProvider(config)
         else:
             raise ValueError(f"Unsupported provider: {config.provider}")
-    
+
     @staticmethod
-    def create_reranker_provider(config: RerankerConfig) -> Optional[BaseRerankerProvider]:
+    def create_reranker_provider(
+        config: RerankerConfig,
+    ) -> Optional[BaseRerankerProvider]:
         """Create a BaseRerankerProvider from configuration."""
         if not config or not config.enabled:
             return None
@@ -210,8 +235,7 @@ class ModelFactory:
                         "Failed to import local GPU reranker provider. "
                         "This usually means your PyTorch/CUDA runtime is not correctly installed. "
                         "If you don't need local GPU reranking, set RERANKER_PROVIDER=api or disable reranking. "
-                        "Original error: "
-                        + str(e)
+                        "Original error: " + str(e)
                     ) from e
 
                 return LocalRerankerProvider(model_config)
@@ -221,7 +245,9 @@ class ModelFactory:
                 raise ValueError("Local reranker requires model_path")
 
             from raganything.rerankers.flagembedding import FlagEmbeddingReranker
-            from backend.providers.reranker_wrappers import FlagEmbeddingRerankerProvider
+            from backend.providers.reranker_wrappers import (
+                FlagEmbeddingRerankerProvider,
+            )
 
             reranker = FlagEmbeddingReranker(
                 model_path=config.model_path,
@@ -263,63 +289,68 @@ class ModelFactory:
         if provider is None:
             return None
 
-        async def rerank_func(query: str, documents: List[str], **kwargs) -> List[Dict[str, float]]:
+        async def rerank_func(
+            query: str, documents: List[str], **kwargs
+        ) -> List[Dict[str, float]]:
             scores = await provider.rerank(query, documents, **kwargs)
-            return [{"index": i, "relevance_score": float(s), "score": float(s)} for i, s in enumerate(scores)]
+            return [
+                {"index": i, "relevance_score": float(s), "score": float(s)}
+                for i, s in enumerate(scores)
+            ]
 
         # Keep a reference for lifecycle management (optional; used by RAGService).
         setattr(rerank_func, "_provider", provider)
         return rerank_func
-    
+
     @staticmethod
     def create_llm_func(config: ModelConfig) -> Callable:
         """
         Create RAGAnything-compatible LLM function.
-        
+
         Args:
             config: Model configuration
-            
+
         Returns:
             Async function compatible with RAGAnything's llm_model_func signature
         """
         provider = ModelFactory.create_llm_provider(config)
-        
+
         async def llm_func(
             prompt: str,
             system_prompt: Optional[str] = None,
             history_messages: Optional[List[Dict[str, str]]] = None,
-            **kwargs
+            **kwargs,
         ) -> str:
             """RAGAnything-compatible LLM function."""
             return await provider.complete(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 history_messages=history_messages,
-                **kwargs
+                **kwargs,
             )
-        
+
         return llm_func
-    
+
     @staticmethod
     def create_vision_func(config: ModelConfig) -> Callable:
         """
         Create RAGAnything-compatible vision function.
-        
+
         Args:
             config: Model configuration
-            
+
         Returns:
             Async function compatible with RAGAnything's vision_model_func signature
         """
         provider = ModelFactory.create_vision_provider(config)
-        
+
         async def vision_func(
             prompt: str,
             images: Optional[List[str]] = None,
             system_prompt: Optional[str] = None,
             image_data: Optional[str] = None,
             messages: Optional[List[Dict[str, Any]]] = None,
-            **kwargs
+            **kwargs,
         ) -> str:
             """RAGAnything-compatible vision function.
             Accepts either:
@@ -335,7 +366,9 @@ class ModelFactory:
             # If full messages are provided, prefer sending them directly
             if messages is not None:
                 try:
-                    complete_with_messages = getattr(provider, "complete_with_messages", None)
+                    complete_with_messages = getattr(
+                        provider, "complete_with_messages", None
+                    )
                     if callable(complete_with_messages):
                         return await complete_with_messages(messages=messages, **kwargs)
                 except Exception:
@@ -379,7 +412,7 @@ class ModelFactory:
             )
 
         return vision_func
-    
+
     @staticmethod
     def create_embedding_func(config: ModelConfig) -> EmbeddingFunc:
         """
@@ -408,7 +441,9 @@ class ModelFactory:
         )
 
     @staticmethod
-    def create_embedding_func_from_provider(provider: BaseEmbeddingProvider) -> EmbeddingFunc:
+    def create_embedding_func_from_provider(
+        provider: BaseEmbeddingProvider,
+    ) -> EmbeddingFunc:
         """
         Create RAGAnything-compatible embedding function from an existing provider.
 
@@ -421,6 +456,7 @@ class ModelFactory:
         Returns:
             EmbeddingFunc instance compatible with RAGAnything
         """
+
         async def embed_func(texts: List[str], **kwargs) -> Any:
             """RAGAnything-compatible embedding function.
 
@@ -432,7 +468,9 @@ class ModelFactory:
         max_token_size = 8192
         provider_config = getattr(provider, "config", None)
         if provider_config is not None and hasattr(provider_config, "extra_params"):
-            max_token_size = provider_config.extra_params.get("max_token_size", max_token_size)
+            max_token_size = provider_config.extra_params.get(
+                "max_token_size", max_token_size
+            )
 
         return EmbeddingFunc(
             embedding_dim=provider.embedding_dim,

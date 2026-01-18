@@ -20,4 +20,3 @@ export { useConfig } from './useConfig';
 export { useDocuments } from './useDocuments';
 export { useGraph } from './useGraph';
 export { useKeyboardShortcut, useEscapeKey, useEnterKey } from './useKeyboardShortcut';
-

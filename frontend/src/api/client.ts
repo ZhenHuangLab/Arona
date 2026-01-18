@@ -1,6 +1,6 @@
 /**
  * Axios HTTP Client Configuration
- * 
+ *
  * Centralized API client with interceptors for error handling and request/response transformation
  */
 
@@ -113,9 +113,9 @@ apiClient.interceptors.response.use(
       // Server responded with error status
       const status = error.response.status;
       const detail = extractErrorDetail(error.response.data) || error.message;
-      
+
       console.error(`[API Error ${status}]`, detail);
-      
+
       // Create custom API exception
       return Promise.reject(new APIException(status, detail));
     } else if (error.request) {

@@ -1,6 +1,6 @@
 /**
  * Indexing Settings Dialog
- * 
+ *
  * Modal dialog for configuring automatic background indexing settings.
  * Uses react-hook-form + zod for form validation.
  */
@@ -46,7 +46,7 @@ interface IndexingSettingsDialogProps {
 
 /**
  * Dialog component for configuring indexing settings
- * 
+ *
  * Features:
  * - Fetch current configuration on open
  * - Form validation with zod
@@ -216,4 +216,3 @@ export function IndexingSettingsDialog({ open, onOpenChange }: IndexingSettingsD
     </Dialog>
   );
 }
-

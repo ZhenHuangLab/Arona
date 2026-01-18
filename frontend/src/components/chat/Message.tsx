@@ -7,7 +7,7 @@ interface MessageProps {
 
 /**
  * Message Component
- * 
+ *
  * Displays a single chat message with user/assistant styling.
  * Implements the minimalist design with clear visual distinction.
  */

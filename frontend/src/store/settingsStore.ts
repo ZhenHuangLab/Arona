@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 
 /**
  * Settings Store - Manages UI settings and preferences
- * 
+ *
  * Responsibilities:
  * - Modal visibility state
  * - Theme preferences
@@ -13,22 +13,22 @@ import { persist } from 'zustand/middleware';
 interface SettingsState {
   // Modal state
   isSettingsModalOpen: boolean;
-  
+
   // View state
   currentView: 'chat' | 'document';
   documentSubView: 'upload' | 'graph' | 'library';
-  
+
   // Theme
   theme: 'light' | 'dark' | 'system';
-  
+
   // Actions
   openSettingsModal: () => void;
   closeSettingsModal: () => void;
   toggleSettingsModal: () => void;
-  
+
   setCurrentView: (view: 'chat' | 'document') => void;
   setDocumentSubView: (subView: 'upload' | 'graph' | 'library') => void;
-  
+
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   toggleTheme: () => void;
 }
@@ -65,4 +65,3 @@ export const useSettingsStore = create<SettingsState>()(
     }
   )
 );
-

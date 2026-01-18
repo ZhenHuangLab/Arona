@@ -540,6 +540,7 @@ class TestConcurrency:
 
     def test_concurrent_session_creates(self, chat_store):
         """Concurrent session creates should not cause lock errors."""
+
         def create_session(i):
             return chat_store.create_session(title=f"Session {i}")
 

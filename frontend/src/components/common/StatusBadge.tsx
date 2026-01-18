@@ -12,7 +12,7 @@ interface StatusBadgeProps extends Omit<BadgeProps, 'variant'> {
 
 /**
  * StatusBadge Component
- * 
+ *
  * Badge with status indicator (online/offline/loading/warning).
  * Displays appropriate icon and color.
  */
@@ -75,4 +75,3 @@ export function StatusBadge({
     </Badge>
   );
 }
-

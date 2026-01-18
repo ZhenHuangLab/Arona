@@ -24,10 +24,10 @@ logger = logging.getLogger(__name__)
 class RAGService:
     """
     Service layer for RAG operations.
-    
+
     Manages RAGAnything instances and provides high-level API.
     """
-    
+
     def __init__(self, config: BackendConfig):
         """
         Initialize RAG service.
@@ -44,7 +44,9 @@ class RAGService:
         self._active_ops = 0
 
         # Create embedding provider (save reference for shutdown)
-        self.embedding_provider = ModelFactory.create_embedding_provider(config.embedding)
+        self.embedding_provider = ModelFactory.create_embedding_provider(
+            config.embedding
+        )
 
         # Optional multimodal embedding provider (separate from text embedding)
         self.multimodal_embedding_provider = None
@@ -55,7 +57,9 @@ class RAGService:
 
         # Create model functions from config
         self.llm_func = ModelFactory.create_llm_func(config.llm)
-        self.embedding_func = ModelFactory.create_embedding_func_from_provider(self.embedding_provider)
+        self.embedding_func = ModelFactory.create_embedding_func_from_provider(
+            self.embedding_provider
+        )
 
         # Optional vision function
         self.vision_func = None
@@ -72,9 +76,13 @@ class RAGService:
 
         logger.info("RAG service initialized with configuration:")
         logger.info(f"  LLM: {config.llm.provider}/{config.llm.model_name}")
-        logger.info(f"  Embedding: {config.embedding.provider}/{config.embedding.model_name}")
+        logger.info(
+            f"  Embedding: {config.embedding.provider}/{config.embedding.model_name}"
+        )
         if config.vision:
-            logger.info(f"  Vision: {config.vision.provider}/{config.vision.model_name}")
+            logger.info(
+                f"  Vision: {config.vision.provider}/{config.vision.model_name}"
+            )
         if config.reranker and config.reranker.enabled:
             logger.info(f"  Reranker: {config.reranker.provider}")
         if self.multimodal_embedding_provider is not None:
@@ -108,24 +116,24 @@ class RAGService:
             return True
         except asyncio.TimeoutError:
             return False
-    
+
     async def get_rag_instance(self) -> RAGAnything:
         """
         Get or create RAGAnything instance.
-        
+
         Returns:
             Initialized RAGAnything instance
         """
         if self._rag_instance is not None:
             return self._rag_instance
-        
+
         async with self._lock:
             # Double-check after acquiring lock
             if self._rag_instance is not None:
                 return self._rag_instance
-            
+
             logger.info("Creating new RAGAnything instance...")
-            
+
             # Create RAGAnything configuration
             rag_config = RAGAnythingConfig(
                 working_dir=self.config.working_dir,
@@ -136,7 +144,7 @@ class RAGService:
                 mineru_device=self.config.mineru_device,
                 mineru_vram=self.config.mineru_vram,
             )
-            
+
             # Create RAGAnything instance
             self._rag_instance = RAGAnything(
                 config=rag_config,
@@ -145,30 +153,30 @@ class RAGService:
                 embedding_func=self.embedding_func,
                 rerank_model_func=self.reranker_func,
             )
-            
+
             # Initialize (this sets up LightRAG and storage)
             await self._rag_instance._ensure_lightrag_initialized()
-            
+
             logger.info("RAGAnything instance created and initialized")
-            
+
             return self._rag_instance
-    
+
     async def process_document(
         self,
         file_path: str | Path,
         output_dir: Optional[str | Path] = None,
         parse_method: str = "auto",
-        **kwargs
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         Process a document and add it to the knowledge base.
-        
+
         Args:
             file_path: Path to document file
             output_dir: Optional output directory for parsed content
             parse_method: Parsing method ("auto", "ocr", "txt")
             **kwargs: Additional processing parameters
-            
+
         Returns:
             Processing result metadata
         """
@@ -196,27 +204,24 @@ class RAGService:
                     "output_dir": str(output_dir),
                 }
             except Exception as e:
-                logger.error(f"Failed to process document {file_path}: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to process document {file_path}: {e}", exc_info=True
+                )
                 return {
                     "status": "error",
                     "file_path": str(file_path),
                     "error": str(e),
                 }
-    
-    async def query(
-        self,
-        query: str,
-        mode: str = "hybrid",
-        **kwargs
-    ) -> str:
+
+    async def query(self, query: str, mode: str = "hybrid", **kwargs) -> str:
         """
         Execute a RAG query.
-        
+
         Args:
             query: User query text
             mode: Query mode ("naive", "local", "global", "hybrid")
             **kwargs: Additional query parameters
-            
+
         Returns:
             Query response text
         """
@@ -260,23 +265,23 @@ class RAGService:
 
             async for chunk in result:
                 yield str(chunk)
-    
+
     async def query_with_multimodal(
         self,
         query: str,
         multimodal_content: Optional[List[Dict[str, Any]]] = None,
         mode: str = "hybrid",
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         Execute a multimodal RAG query.
-        
+
         Args:
             query: User query text
             multimodal_content: Optional multimodal content (images, tables, equations)
             mode: Query mode ("naive", "local", "global", "hybrid")
             **kwargs: Additional query parameters
-            
+
         Returns:
             Query response text
         """
@@ -297,11 +302,11 @@ class RAGService:
             except Exception as e:
                 logger.error(f"Multimodal query failed: {e}", exc_info=True)
                 raise
-    
+
     async def get_status(self) -> Dict[str, Any]:
         """
         Get RAG service status.
-        
+
         Returns:
             Status information
         """
@@ -316,17 +321,21 @@ class RAGService:
                 "embedding": {
                     "provider": self.config.embedding.provider.value,
                     "model": self.config.embedding.model_name,
-                    "dimension": getattr(self.embedding_provider, "embedding_dim", self.config.embedding.embedding_dim),
+                    "dimension": getattr(
+                        self.embedding_provider,
+                        "embedding_dim",
+                        self.config.embedding.embedding_dim,
+                    ),
                 },
             },
         }
-        
+
         if self.config.vision:
             status["models"]["vision"] = {
                 "provider": self.config.vision.provider.value,
                 "model": self.config.vision.model_name,
             }
-        
+
         if self.config.reranker and self.config.reranker.enabled:
             status["reranker"] = {
                 "enabled": True,
@@ -354,15 +363,19 @@ class RAGService:
         await self.wait_for_idle(timeout=5.0)
 
         # Shutdown embedding provider if it has a shutdown method
-        if hasattr(self.embedding_provider, 'shutdown'):
+        if hasattr(self.embedding_provider, "shutdown"):
             await self.embedding_provider.shutdown()
 
         # Shutdown multimodal embedding provider if present
-        if self.multimodal_embedding_provider and hasattr(self.multimodal_embedding_provider, "shutdown"):
+        if self.multimodal_embedding_provider and hasattr(
+            self.multimodal_embedding_provider, "shutdown"
+        ):
             await self.multimodal_embedding_provider.shutdown()
 
         # Shutdown reranker provider if present
-        if self.reranker_provider is not None and hasattr(self.reranker_provider, "shutdown"):
+        if self.reranker_provider is not None and hasattr(
+            self.reranker_provider, "shutdown"
+        ):
             await self.reranker_provider.shutdown()
 
         self._rag_instance = None

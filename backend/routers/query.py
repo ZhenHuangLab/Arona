@@ -7,7 +7,6 @@ import base64
 import hashlib
 import time
 from datetime import datetime
-from typing import Optional
 from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, status
@@ -77,7 +76,9 @@ def _save_query_image_base64_to_uploads(
     if not image_bytes:
         raise ValueError("Decoded img_base64 is empty")
     if len(image_bytes) > max_bytes:
-        raise ValueError(f"Query image too large: {len(image_bytes)} bytes > {max_bytes} bytes")
+        raise ValueError(
+            f"Query image too large: {len(image_bytes)} bytes > {max_bytes} bytes"
+        )
 
     query_dir = upload_dir / "query_images"
     query_dir.mkdir(parents=True, exist_ok=True)
@@ -91,17 +92,14 @@ def _save_query_image_base64_to_uploads(
 
 
 @router.post("/", response_model=QueryResponse)
-async def query(
-    request: Request,
-    req: QueryRequest
-):
+async def query(request: Request, req: QueryRequest):
     """
     Execute a RAG query.
-    
+
     Performs retrieval-augmented generation on the knowledge base.
     """
     state = request.app.state
-    
+
     try:
         # Build kwargs from optional parameters
         kwargs = {}
@@ -111,20 +109,21 @@ async def query(
             kwargs["max_tokens"] = req.max_tokens
         if req.temperature is not None:
             kwargs["temperature"] = req.temperature
-        
+
         # Execute query
         response = await state.rag_service.query(
-            query=req.query,
-            mode=req.mode,
-            **kwargs
+            query=req.query, mode=req.mode, **kwargs
         )
 
         # Defensive: LightRAG may return None on internal errors; surface a clear API error
         if not isinstance(response, str) or response is None:
-            logger.error("RAG pipeline returned non-string response (%r); returning 500", type(response))
+            logger.error(
+                "RAG pipeline returned non-string response (%r); returning 500",
+                type(response),
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Query pipeline returned no response due to an internal error. Check backend logs."
+                detail="Query pipeline returned no response due to an internal error. Check backend logs.",
             )
 
         return QueryResponse(
@@ -133,29 +132,26 @@ async def query(
             mode=req.mode,
             metadata={
                 "timestamp": datetime.utcnow().isoformat(),
-            }
+            },
         )
-    
+
     except Exception as e:
         logger.error(f"Query failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Query failed: {str(e)}"
+            detail=f"Query failed: {str(e)}",
         )
 
 
 @router.post("/multimodal", response_model=QueryResponse)
-async def multimodal_query(
-    request: Request,
-    req: MultimodalQueryRequest
-):
+async def multimodal_query(request: Request, req: MultimodalQueryRequest):
     """
     Execute a multimodal RAG query.
-    
+
     Supports queries with images, tables, and equations.
     """
     state = request.app.state
-    
+
     try:
         # Convert multimodal content to dict format
         multimodal_content = None
@@ -169,7 +165,11 @@ async def multimodal_query(
 
                 # Allow clients to send query images as base64; persist to disk so the
                 # retrieval pipeline can consume them via Image Path markers.
-                if payload.get("type") in {"image", "table"} and payload.get("img_base64") and not payload.get("img_path"):
+                if (
+                    payload.get("type") in {"image", "table"}
+                    and payload.get("img_base64")
+                    and not payload.get("img_path")
+                ):
                     try:
                         payload["img_path"] = _save_query_image_base64_to_uploads(
                             img_base64=payload["img_base64"],
@@ -183,7 +183,7 @@ async def multimodal_query(
                         ) from exc
 
                 multimodal_content.append(payload)
-        
+
         # Build kwargs from optional parameters
         kwargs = {}
         if req.top_k is not None:
@@ -192,54 +192,55 @@ async def multimodal_query(
             kwargs["max_tokens"] = req.max_tokens
         if req.temperature is not None:
             kwargs["temperature"] = req.temperature
-        
+
         # Execute multimodal query
         response = await state.rag_service.query_with_multimodal(
             query=req.query,
             multimodal_content=multimodal_content,
             mode=req.mode,
-            **kwargs
+            **kwargs,
         )
-        
+
         return QueryResponse(
             query=req.query,
             response=response,
             mode=req.mode,
             metadata={
                 "timestamp": datetime.utcnow().isoformat(),
-                "multimodal_items": len(multimodal_content) if multimodal_content else 0,
-            }
+                "multimodal_items": len(multimodal_content)
+                if multimodal_content
+                else 0,
+            },
         )
-    
+
     except Exception as e:
         logger.error(f"Multimodal query failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Multimodal query failed: {str(e)}"
+            detail=f"Multimodal query failed: {str(e)}",
         )
 
 
 @router.post("/conversation", response_model=ConversationResponse)
-async def conversation_query(
-    request: Request,
-    req: ConversationRequest
-):
+async def conversation_query(request: Request, req: ConversationRequest):
     """
     Execute a conversational RAG query.
-    
+
     Maintains conversation history for multi-turn interactions.
     """
     state = request.app.state
-    
+
     try:
         # Convert history to LightRAG QueryParam format
         conversation_history = []
         if req.history:
             for msg in req.history:
-                conversation_history.append({
-                    "role": msg.role,
-                    "content": msg.content,
-                })
+                conversation_history.append(
+                    {
+                        "role": msg.role,
+                        "content": msg.content,
+                    }
+                )
 
         # Convert multimodal content to dict format (optional)
         multimodal_content = None
@@ -251,7 +252,11 @@ async def conversation_query(
             for item in req.multimodal_content:
                 payload = item.model_dump(exclude_none=True)
 
-                if payload.get("type") in {"image", "table"} and payload.get("img_base64") and not payload.get("img_path"):
+                if (
+                    payload.get("type") in {"image", "table"}
+                    and payload.get("img_base64")
+                    and not payload.get("img_path")
+                ):
                     try:
                         payload["img_path"] = _save_query_image_base64_to_uploads(
                             img_base64=payload["img_base64"],
@@ -265,18 +270,18 @@ async def conversation_query(
                         ) from exc
 
                 multimodal_content.append(payload)
-        
+
         # Build kwargs
         kwargs = {}
         if req.max_tokens is not None:
             kwargs["max_tokens"] = req.max_tokens
         if req.temperature is not None:
             kwargs["temperature"] = req.temperature
-        
+
         # Add history to kwargs (LightRAG QueryParam expects conversation_history)
         if conversation_history:
             kwargs["conversation_history"] = conversation_history
-        
+
         # Execute query (multimodal-aware when content is provided)
         if multimodal_content:
             response = await state.rag_service.query_with_multimodal(
@@ -287,38 +292,40 @@ async def conversation_query(
             )
         else:
             response = await state.rag_service.query(
-                query=req.query,
-                mode=req.mode,
-                **kwargs
+                query=req.query, mode=req.mode, **kwargs
             )
-        
+
         # Build updated history
         updated_history = list(req.history) if req.history else []
-        
+
         # Add user message
-        updated_history.append(ConversationMessage(
-            role="user",
-            content=req.query,
-            timestamp=datetime.utcnow().isoformat(),
-        ))
-        
+        updated_history.append(
+            ConversationMessage(
+                role="user",
+                content=req.query,
+                timestamp=datetime.utcnow().isoformat(),
+            )
+        )
+
         # Add assistant response
-        updated_history.append(ConversationMessage(
-            role="assistant",
-            content=response,
-            timestamp=datetime.utcnow().isoformat(),
-        ))
-        
+        updated_history.append(
+            ConversationMessage(
+                role="assistant",
+                content=response,
+                timestamp=datetime.utcnow().isoformat(),
+            )
+        )
+
         return ConversationResponse(
             query=req.query,
             response=response,
             mode=req.mode,
             history=updated_history,
         )
-    
+
     except Exception as e:
         logger.error(f"Conversation query failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Conversation query failed: {str(e)}"
+            detail=f"Conversation query failed: {str(e)}",
         )

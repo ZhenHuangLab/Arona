@@ -2,17 +2,17 @@ import { toast } from './toast';
 
 /**
  * Copy text to clipboard using the Clipboard API
- * 
+ *
  * Features:
  * - Uses modern navigator.clipboard.writeText API
  * - Fallback to legacy document.execCommand for older browsers
  * - Toast notification on success/failure
  * - Fail-fast error handling
- * 
+ *
  * @param text - Text to copy to clipboard
  * @param successMessage - Optional custom success message (default: "Copied to clipboard")
  * @returns Promise<boolean> - true if successful, false otherwise
- * 
+ *
  * @example
  * ```tsx
  * <button onClick={() => copyToClipboard('/path/to/file')}>
@@ -68,7 +68,7 @@ export async function copyToClipboard(
 
 /**
  * Check if clipboard API is available
- * 
+ *
  * @returns boolean - true if clipboard API is supported
  */
 export function isClipboardSupported(): boolean {
@@ -77,4 +77,3 @@ export function isClipboardSupported(): boolean {
     document.queryCommandSupported?.('copy')
   );
 }
-

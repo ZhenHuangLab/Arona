@@ -1,6 +1,6 @@
 /**
  * Confirm Delete Dialog
- * 
+ *
  * Confirmation dialog for deleting documents.
  * Follows minimalist design with modal/popup pattern.
  * Uses AlertDialog for proper accessibility and destructive action UX.
@@ -28,7 +28,7 @@ interface ConfirmDeleteDialogProps {
 
 /**
  * Dialog component for confirming document deletion
- * 
+ *
  * Features:
  * - Shows document name in confirmation message
  * - Disables confirm button while deleting
@@ -52,7 +52,7 @@ export function ConfirmDeleteDialog({
             Delete document?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to delete <strong>{documentName}</strong>? 
+            Are you sure you want to delete <strong>{documentName}</strong>?
             It will be moved to trash and can be recovered if needed.
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -70,4 +70,3 @@ export function ConfirmDeleteDialog({
     </AlertDialog>
   );
 }
-

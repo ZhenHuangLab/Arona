@@ -634,6 +634,7 @@ class MineruParser(Parser):
         # Reason: Auto-detect model source based on environment or default to modelscope for China
         if source is None:
             import os
+
             # Check if we should use modelscope (for China/restricted networks)
             source = os.environ.get("MINERU_MODEL_SOURCE", "huggingface")
 
@@ -815,7 +816,9 @@ class MineruParser(Parser):
             if return_code != 0 or error_lines:
                 logging.error("[MinerU] Command executed with errors")
                 # Provide detailed error message
-                error_detail = "\n".join(error_lines) if error_lines else "Unknown error"
+                error_detail = (
+                    "\n".join(error_lines) if error_lines else "Unknown error"
+                )
                 raise MineruExecutionError(return_code, error_detail)
             else:
                 logging.info("[MinerU] Command executed successfully")
@@ -953,9 +956,9 @@ class MineruParser(Parser):
             except MineruExecutionError as e:
                 # Check if error is GPU-related (kernel image not available)
                 error_msg = str(e).lower()
-                is_cuda_oom = ("cuda" in error_msg and "out of memory" in error_msg) or (
-                    "outofmemoryerror" in error_msg
-                )
+                is_cuda_oom = (
+                    "cuda" in error_msg and "out of memory" in error_msg
+                ) or ("outofmemoryerror" in error_msg)
                 if (
                     "no kernel image is available" in error_msg
                     or "cuda error" in error_msg
@@ -997,9 +1000,15 @@ class MineruParser(Parser):
                 file_stem_subdir = base_output_dir / name_without_suff
                 expected_json = None
                 if file_stem_subdir.exists():
-                    expected_json = file_stem_subdir / method / f"{name_without_suff}_content_list.json"
+                    expected_json = (
+                        file_stem_subdir
+                        / method
+                        / f"{name_without_suff}_content_list.json"
+                    )
                 else:
-                    expected_json = base_output_dir / f"{name_without_suff}_content_list.json"
+                    expected_json = (
+                        base_output_dir / f"{name_without_suff}_content_list.json"
+                    )
 
                 error_msg = (
                     f"MinerU parsing failed: No content was extracted from {pdf_path.name}. "
@@ -1158,9 +1167,15 @@ class MineruParser(Parser):
                     file_stem_subdir = base_output_dir / name_without_suff
                     expected_json = None
                     if file_stem_subdir.exists():
-                        expected_json = file_stem_subdir / "ocr" / f"{name_without_suff}_content_list.json"
+                        expected_json = (
+                            file_stem_subdir
+                            / "ocr"
+                            / f"{name_without_suff}_content_list.json"
+                        )
                     else:
-                        expected_json = base_output_dir / f"{name_without_suff}_content_list.json"
+                        expected_json = (
+                            base_output_dir / f"{name_without_suff}_content_list.json"
+                        )
 
                     error_msg = (
                         f"MinerU parsing failed: No content was extracted from {image_path.name}. "

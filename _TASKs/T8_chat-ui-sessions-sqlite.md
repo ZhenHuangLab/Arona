@@ -48,7 +48,7 @@
         <Criterion>AC6: 提供可执行的验收步骤（启动命令 + 手动点测清单）；关键 API 提供 pytest 覆盖；前端提供至少 1 条 Playwright 流程用例。</Criterion>
       </AcceptanceCriteria>
       <TestStrategy>
-        - Backend: pytest 单元测试（ChatStore CRUD、turn 写入原子性），FastAPI TestClient 集成测试（router）。 
+        - Backend: pytest 单元测试（ChatStore CRUD、turn 写入原子性），FastAPI TestClient 集成测试（router）。
         - Frontend: Vitest（store/actions），Playwright e2e（新建会话→发送消息→切换会话→验证隔离）。
       </TestStrategy>
       <Rollback>
@@ -128,24 +128,24 @@
         <Item>
           <Label>Sessions CRUD：</Label>
           <Text>
-            - `POST /api/chat/sessions` → create（返回 `id`）  
-            - `GET /api/chat/sessions?limit=&cursor=&q=` → list（按 updated_at desc，支持分页与搜索；cursor 为上一页返回的 next_cursor，Base64(JSON): {updated_at,id}）  
-            - `GET /api/chat/sessions/{session_id}` → get session meta  
-            - `GET /api/chat/sessions/{session_id}/messages?limit=&cursor=` → list messages（支持分页；cursor 为上一页返回的 next_cursor，Base64(JSON): {created_at,id}）  
-            - `PATCH /api/chat/sessions/{session_id}` → rename/title update  
+            - `POST /api/chat/sessions` → create（返回 `id`）
+            - `GET /api/chat/sessions?limit=&cursor=&q=` → list（按 updated_at desc，支持分页与搜索；cursor 为上一页返回的 next_cursor，Base64(JSON): {updated_at,id}）
+            - `GET /api/chat/sessions/{session_id}` → get session meta
+            - `GET /api/chat/sessions/{session_id}/messages?limit=&cursor=` → list messages（支持分页；cursor 为上一页返回的 next_cursor，Base64(JSON): {created_at,id}）
+            - `PATCH /api/chat/sessions/{session_id}` → rename/title update
             - `DELETE /api/chat/sessions/{session_id}` → delete（MVP 可软删除：写 deleted_at；可选提供 `?hard=true` 做物理删除）
           </Text>
         </Item>
         <Item>
           <Label>对话 Turn：</Label>
           <Text>
-            - `POST /api/chat/sessions/{session_id}/turn`  
-              入参：`request_id`（幂等用，前端每次发送生成 uuid），`query`, `mode`, `multimodal_content?`, `max_tokens?`, `temperature?`, `history_limit?`, `max_history_tokens?`  
-              服务端：  
-              1) 幂等检查：若 `request_id` 已存在且 status=completed 且 payload_hash 一致，则直接返回已生成的 messages；若 payload_hash 不一致或 status=pending，则返回 409  
-              2) 写入 user message（短事务，不持锁等待 LLM）  
-              3) 从 DB 取最近消息（按 limit/token budget 截断）组装 history → 调用现有 `rag_service.query(...)`  
-              4) 写入 assistant message + 更新 session.updated_at/title  
+            - `POST /api/chat/sessions/{session_id}/turn`
+              入参：`request_id`（幂等用，前端每次发送生成 uuid），`query`, `mode`, `multimodal_content?`, `max_tokens?`, `temperature?`, `history_limit?`, `max_history_tokens?`
+              服务端：
+              1) 幂等检查：若 `request_id` 已存在且 status=completed 且 payload_hash 一致，则直接返回已生成的 messages；若 payload_hash 不一致或 status=pending，则返回 409
+              2) 写入 user message（短事务，不持锁等待 LLM）
+              3) 从 DB 取最近消息（按 limit/token budget 截断）组装 history → 调用现有 `rag_service.query(...)`
+              4) 写入 assistant message + 更新 session.updated_at/title
               5) 失败补偿：将该 turn 标记 failed，或将 user message 标记 failed（metadata），避免“半写入”不可解释
           </Text>
         </Item>
@@ -156,10 +156,10 @@
         <Item>
           <Label>错误码约定（建议在 P0 冻结）：</Label>
           <Text>
-            - 400：空 query、request_id 缺失、mode 非法、payload 超限、multimodal 参数非法  
-            - 404：session 不存在/已删除  
-            - 409：幂等冲突（同 request_id 但 payload 不一致）或 title 重名冲突（若启用）  
-            - 422：Pydantic 校验失败（自动）  
+            - 400：空 query、request_id 缺失、mode 非法、payload 超限、multimodal 参数非法
+            - 404：session 不存在/已删除
+            - 409：幂等冲突（同 request_id 但 payload 不一致）或 title 重名冲突（若启用）
+            - 422：Pydantic 校验失败（自动）
             - 500：rag_service/存储内部错误（需要结构化 detail）
           </Text>
         </Item>
@@ -731,10 +731,10 @@ CREATE INDEX IF NOT EXISTS idx_turns_session ON chat_turns(session_id, created_a
             <Operation>add</Operation>
             <Rationale>封装 sqlite3 访问模式，提供可测试、可复用的存储层。</Rationale>
             <Method>
-              - 连接工厂：`sqlite3.connect(db_path, timeout=30)`，`row_factory=sqlite3.Row`  
-              - init_db：创建 `chat_sessions/chat_messages/chat_turns` + 索引 + PRAGMA（WAL + busy_timeout）  
-              - API：create_session/list_sessions/get_session/update_session/delete_session  
-              - messages：append_message/list_messages/delete_messages_by_session  
+              - 连接工厂：`sqlite3.connect(db_path, timeout=30)`，`row_factory=sqlite3.Row`
+              - init_db：创建 `chat_sessions/chat_messages/chat_turns` + 索引 + PRAGMA（WAL + busy_timeout）
+              - API：create_session/list_sessions/get_session/update_session/delete_session
+              - messages：append_message/list_messages/delete_messages_by_session
               - turn 写入：避免“持锁等待 LLM”——采用补偿写入：先写 user（短事务）→ LLM → 写 assistant（短事务）→ 失败则标记 turn/message failed（metadata）或清理 user message
             </Method>
           </Edit>
@@ -755,9 +755,9 @@ CREATE INDEX IF NOT EXISTS idx_turns_session ON chat_turns(session_id, created_a
             <Operation>add</Operation>
             <Rationale>覆盖 ChatStore 的关键数据一致性与并发边界，避免后续演进破坏。</Rationale>
             <Method>
-              - 覆盖：create/list/get/delete（软删过滤）、append_message 更新 session.updated_at、list_messages 分页 cursor  
-              - 幂等：chat_turns 写入与查找（同 request_id 重放）  
-              - 失败补偿：标记 failed 的消息/turn 仍可解释（不影响后续继续对话）  
+              - 覆盖：create/list/get/delete（软删过滤）、append_message 更新 session.updated_at、list_messages 分页 cursor
+              - 幂等：chat_turns 写入与查找（同 request_id 重放）
+              - 失败补偿：标记 failed 的消息/turn 仍可解释（不影响后续继续对话）
               - 并发：并发 append/turn 不应频繁报 locked（WAL + busy_timeout）
             </Method>
           </Edit>
@@ -788,11 +788,11 @@ CREATE INDEX IF NOT EXISTS idx_turns_session ON chat_turns(session_id, created_a
             <Operation>add</Operation>
             <Rationale>提供面向前端的 chats/session API。</Rationale>
             <Method>
-              - `POST /sessions`：创建会话（返回 id/title）  
-              - `GET /sessions?limit=&cursor=&q=`：按 updated_at 排序返回（分页 + 搜索 + 软删除过滤）  
-              - `PATCH /sessions/{id}`：更新 title  
-              - `DELETE /sessions/{id}`：默认软删除（写 deleted_at），可选 `?hard=true` 物理删除（级联）  
-              - `GET /sessions/{id}/messages?limit=&cursor=`：消息分页（cursor-based；支持回放长对话）  
+              - `POST /sessions`：创建会话（返回 id/title）
+              - `GET /sessions?limit=&cursor=&q=`：按 updated_at 排序返回（分页 + 搜索 + 软删除过滤）
+              - `PATCH /sessions/{id}`：更新 title
+              - `DELETE /sessions/{id}`：默认软删除（写 deleted_at），可选 `?hard=true` 物理删除（级联）
+              - `GET /sessions/{id}/messages?limit=&cursor=`：消息分页（cursor-based；支持回放长对话）
               - `POST /sessions/{id}/turn`：要求 `request_id` 幂等；流程：幂等检查 → 写 user（短事务）→ 取 history（limit + token 截断）→ 调 rag_service（不持 DB 锁）→ 写 assistant + 更新 session.updated_at/title → 写 turn 状态（completed/failed）
             </Method>
           </Edit>
@@ -813,11 +813,11 @@ CREATE INDEX IF NOT EXISTS idx_turns_session ON chat_turns(session_id, created_a
             <Operation>add</Operation>
             <Rationale>保证 API 行为可回归、可持续演进。</Rationale>
             <Method>
-              - 使用 FastAPI TestClient（或 httpx AsyncClient）  
-              - mock rag_service.query 返回固定字符串（避免真实模型调用）  
-              - 覆盖：create session → list sessions（分页）→ turn（带 request_id）→ list messages（分页）→ rename → delete（软删）→ hard delete（可选）  
-              - 覆盖错误码：400（空 query / request_id 缺失 / mode 非法）、404（session 不存在）、409（request_id 冲突）、422（字段校验）  
-              - 幂等验证：同 request_id 重放应返回同一结果（不新增 messages）  
+              - 使用 FastAPI TestClient（或 httpx AsyncClient）
+              - mock rag_service.query 返回固定字符串（避免真实模型调用）
+              - 覆盖：create session → list sessions（分页）→ turn（带 request_id）→ list messages（分页）→ rename → delete（软删）→ hard delete（可选）
+              - 覆盖错误码：400（空 query / request_id 缺失 / mode 非法）、404（session 不存在）、409（request_id 冲突）、422（字段校验）
+              - 幂等验证：同 request_id 重放应返回同一结果（不新增 messages）
               - 失败补偿：rag_service 抛错时，turn 状态为 failed，且不会产生“重复 assistant”或不可解释的半成品状态（策略需在 P0 冻结：删除 user vs 标记 failed）
             </Method>
           </Edit>
@@ -1058,28 +1058,28 @@ CREATE INDEX IF NOT EXISTS idx_turns_session ON chat_turns(session_id, created_a
       <Item>
         <Label>启动：</Label>
         <Text>
-          1) `bash scripts/start_all.sh`（或分别启动后端 `uvicorn backend.main:app --reload` 与前端 `cd frontend &amp;&amp; npm run dev`）  
+          1) `bash scripts/start_all.sh`（或分别启动后端 `uvicorn backend.main:app --reload` 与前端 `cd frontend &amp;&amp; npm run dev`）
           2) 打开 `http://localhost:5173`
         </Text>
       </Item>
       <Item>
         <Label>验收清单（手动）：</Label>
         <Text>
-          - Sidebar 可见：New chat / Search / Library / Chats list / User+Settings  
-          - 新建会话：点击 New chat → URL 变为 `/chat/&lt;id&gt;`  
-          - A 会话发送 1 条消息 → 出现 assistant 回复  
-          - 新建 B 会话发送消息 → 切回 A 仍只显示 A 的消息  
-          - Library 入口可进入 documents library，上传/图谱/列表仍可用  
+          - Sidebar 可见：New chat / Search / Library / Chats list / User+Settings
+          - 新建会话：点击 New chat → URL 变为 `/chat/&lt;id&gt;`
+          - A 会话发送 1 条消息 → 出现 assistant 回复
+          - 新建 B 会话发送消息 → 切回 A 仍只显示 A 的消息
+          - Library 入口可进入 documents library，上传/图谱/列表仍可用
           - Settings 从左下角打开，health/config 正常显示
         </Text>
       </Item>
       <Item>
         <Label>验收清单（API）：</Label>
         <Text>
-          - `POST /api/chat/sessions` 创建  
-          - `POST /api/chat/sessions/{id}/turn` 对话  
-          - `GET /api/chat/sessions/{id}/messages` 回放  
-          - `PATCH /api/chat/sessions/{id}` 重命名  
+          - `POST /api/chat/sessions` 创建
+          - `POST /api/chat/sessions/{id}/turn` 对话
+          - `GET /api/chat/sessions/{id}/messages` 回放
+          - `PATCH /api/chat/sessions/{id}` 重命名
           - `DELETE /api/chat/sessions/{id}` 删除
         </Text>
       </Item>

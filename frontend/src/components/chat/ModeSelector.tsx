@@ -15,7 +15,7 @@ interface ModeSelectorProps {
 
 /**
  * Mode Selector Component
- * 
+ *
  * Dropdown for selecting query mode (naive/local/global/hybrid).
  * Used in the chat input bar.
  */
@@ -34,4 +34,3 @@ export function ModeSelector({ value, onChange, disabled }: ModeSelectorProps) {
     </Select>
   );
 }
-

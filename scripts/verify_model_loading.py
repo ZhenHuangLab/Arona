@@ -12,16 +12,16 @@ This script performs comprehensive testing of downloaded models:
 Usage:
     # Verify all models
     python scripts/verify_model_loading.py --all
-    
+
     # Verify specific model
     python scripts/verify_model_loading.py --model Qwen/Qwen3-Embedding-4B
-    
+
     # Compare FP16 vs FP32
     python scripts/verify_model_loading.py --model Qwen/Qwen3-Embedding-4B --compare-dtypes
-    
+
     # Compare eager vs sdpa attention
     python scripts/verify_model_loading.py --model Qwen/Qwen3-Embedding-4B --compare-attn
-    
+
     # Test batch inference
     python scripts/verify_model_loading.py --model Qwen/Qwen3-Embedding-4B --test-batch
 """
@@ -31,7 +31,7 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 import torch
 import numpy as np
@@ -62,7 +62,7 @@ def print_section(title: str) -> None:
     """Print a formatted section header."""
     print(f"\n{'=' * 80}")
     print(f"  {title}")
-    print('=' * 80)
+    print("=" * 80)
 
 
 def measure_memory(device: str) -> float:
@@ -73,9 +73,7 @@ def measure_memory(device: str) -> float:
 def _qwen3_reranker_format_pair(instruction: str, query: str, document: str) -> str:
     """Format a single pair for Qwen3-Reranker scoring."""
     return (
-        f"<Instruct>: {instruction}\n"
-        f"<Query>: {query}\n"
-        f"<Document>: {document}"
+        f"<Instruct>: {instruction}\n" f"<Query>: {query}\n" f"<Document>: {document}"
     )
 
 
@@ -95,7 +93,7 @@ def _qwen3_reranker_build_inputs(
     if system_prompt is None:
         system_prompt = (
             "Judge whether the Document meets the requirements based on the Query and the Instruct provided. "
-            "Note that the answer can only be \"yes\" or \"no\"."
+            'Note that the answer can only be "yes" or "no".'
         )
 
     prefix = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n"
@@ -145,7 +143,9 @@ def _qwen3_reranker_score_pairs(
         next_logits = outputs.logits[:, -1, :]
         yes_logits = next_logits[:, token_yes_id]
         no_logits = next_logits[:, token_no_id]
-        probs_yes = torch.softmax(torch.stack([no_logits, yes_logits], dim=1).float(), dim=1)[:, 1]
+        probs_yes = torch.softmax(
+            torch.stack([no_logits, yes_logits], dim=1).float(), dim=1
+        )[:, 1]
         return probs_yes.detach().cpu().tolist()
 
 
@@ -157,18 +157,18 @@ def test_embedding_model(
 ) -> Dict[str, Any]:
     """
     Test embedding model loading and inference.
-    
+
     Args:
         model_id: HuggingFace model ID
         device: CUDA device
         dtype: Model dtype (float16 or float32)
         attn_implementation: Attention implementation (eager or sdpa)
-        
+
     Returns:
         Test results dictionary
     """
     from sentence_transformers import SentenceTransformer
-    
+
     results = {
         "model_id": model_id,
         "device": device,
@@ -176,7 +176,7 @@ def test_embedding_model(
         "attn_implementation": attn_implementation,
         "success": False,
     }
-    
+
     try:
         # Ensure device context is initialized and selected
         dev = torch.device(device)
@@ -185,11 +185,11 @@ def test_embedding_model(
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(dev)
         initial_memory = measure_memory(dev)
-        
+
         # Load model
         print(f"Loading {model_id} with dtype={dtype}, attn={attn_implementation}...")
         start_time = time.time()
-        
+
         model = SentenceTransformer(
             model_id,
             device=device,
@@ -198,18 +198,18 @@ def test_embedding_model(
                 "attn_implementation": attn_implementation,
             },
         )
-        
+
         load_time = time.time() - start_time
         loaded_memory = measure_memory(dev)
         reserved_loaded = torch.cuda.memory_reserved(device) / 1024**3
         reserved_initial = torch.cuda.memory_reserved(device) / 1024**3
         memory_used = loaded_memory - initial_memory
         reserved_used = reserved_loaded - reserved_initial
-        
+
         print(f"  Load time: {load_time:.2f}s")
         print(f"  Memory used: {memory_used:.2f} GB (allocated)")
         print(f"  Memory reserved: {reserved_used:.2f} GB (delta)")
-        
+
         # Warmup (no NumPy conversion to avoid NumPy 2.x issues)
         print("  Warming up...")
         _ = model.encode("warmup")
@@ -218,57 +218,66 @@ def test_embedding_model(
         # Verify attention backend if available
         try:
             attn_backend = None
-            if hasattr(model[0], 'auto_model') and hasattr(model[0].auto_model, 'config'):
-                attn_backend = getattr(model[0].auto_model.config, 'attn_implementation', None)
+            if hasattr(model[0], "auto_model") and hasattr(
+                model[0].auto_model, "config"
+            ):
+                attn_backend = getattr(
+                    model[0].auto_model.config, "attn_implementation", None
+                )
             if attn_backend:
                 print(f"  Detected attn backend: {attn_backend}")
                 if attn_backend != attn_implementation:
-                    print(f"  ⚠ Attention backend mismatch (requested {attn_implementation}, got {attn_backend})")
+                    print(
+                        f"  ⚠ Attention backend mismatch (requested {attn_implementation}, got {attn_backend})"
+                    )
             results["attn_backend_detected"] = attn_backend
         except Exception:
             results["attn_backend_detected"] = None
-        
+
         # Test single inference
         print("  Testing single inference...")
         test_text = "This is a test sentence for embedding generation."
 
         start_time = time.time()
         embedding = model.encode(test_text)
-        if hasattr(embedding, 'cpu'):
+        if hasattr(embedding, "cpu"):
             embedding = embedding.cpu().numpy()
         if not isinstance(embedding, np.ndarray):
             embedding = np.array(embedding)
         inference_time = time.time() - start_time
-        
+
         print(f"  Inference time: {inference_time*1000:.2f}ms")
         print(f"  Embedding shape: {embedding.shape}")
-        
+
         # Get peak memory
         peak_memory = torch.cuda.max_memory_allocated(dev) / 1024**3
         peak_reserved = torch.cuda.max_memory_reserved(dev) / 1024**3
-        
-        results.update({
-            "success": True,
-            "load_time_s": load_time,
-            "memory_used_gb": memory_used,
-            "memory_reserved_used_gb": reserved_used,
-            "warmup_memory_gb": warmup_memory,
-            "peak_memory_gb": peak_memory,
-            "peak_memory_reserved_gb": peak_reserved,
-            "inference_time_ms": inference_time * 1000,
-            "embedding_dim": embedding.shape[0],
-        })
-        
+
+        results.update(
+            {
+                "success": True,
+                "load_time_s": load_time,
+                "memory_used_gb": memory_used,
+                "memory_reserved_used_gb": reserved_used,
+                "warmup_memory_gb": warmup_memory,
+                "peak_memory_gb": peak_memory,
+                "peak_memory_reserved_gb": peak_reserved,
+                "inference_time_ms": inference_time * 1000,
+                "embedding_dim": embedding.shape[0],
+            }
+        )
+
         # Clean up and force GC
         import gc
+
         del model
         torch.cuda.empty_cache()
         gc.collect()
-        
+
     except Exception as e:
         results["error"] = f"{type(e).__name__}: {e}"
         print(f"  ✗ Error: {results['error']}")
-    
+
     return results
 
 
@@ -280,18 +289,18 @@ def test_reranker_model(
 ) -> Dict[str, Any]:
     """
     Test reranker model loading and inference.
-    
+
     Args:
         model_id: HuggingFace model ID
         device: CUDA device
         dtype: Model dtype (float16 or float32)
         attn_implementation: Attention implementation (eager or sdpa)
-        
+
     Returns:
         Test results dictionary
     """
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    
+
     results = {
         "model_id": model_id,
         "device": device,
@@ -299,7 +308,7 @@ def test_reranker_model(
         "attn_implementation": attn_implementation,
         "success": False,
     }
-    
+
     try:
         # Ensure device context is initialized and selected
         dev = torch.device(device)
@@ -309,11 +318,11 @@ def test_reranker_model(
         torch.cuda.reset_peak_memory_stats(dev)
         initial_memory = measure_memory(dev)
         initial_reserved = torch.cuda.memory_reserved(dev) / 1024**3
-        
+
         # Load model
         print(f"Loading {model_id} with dtype={dtype}, attn={attn_implementation}...")
         start_time = time.time()
-        
+
         tokenizer = AutoTokenizer.from_pretrained(
             model_id,
             padding_side="left",
@@ -322,13 +331,18 @@ def test_reranker_model(
         # Ensure pad token exists for batched padding
         if tokenizer.pad_token is None and tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
-        if getattr(tokenizer, "pad_token_id", None) is None and tokenizer.eos_token_id is not None:
+        if (
+            getattr(tokenizer, "pad_token_id", None) is None
+            and tokenizer.eos_token_id is not None
+        ):
             tokenizer.pad_token_id = tokenizer.eos_token_id
 
         yes_ids = tokenizer("yes", add_special_tokens=False).input_ids
         no_ids = tokenizer("no", add_special_tokens=False).input_ids
         if len(yes_ids) != 1 or len(no_ids) != 1:
-            raise RuntimeError(f'Expected "yes"/"no" to be single tokens, got yes={yes_ids}, no={no_ids}')
+            raise RuntimeError(
+                f'Expected "yes"/"no" to be single tokens, got yes={yes_ids}, no={no_ids}'
+            )
         token_yes_id = yes_ids[0]
         token_no_id = no_ids[0]
 
@@ -340,26 +354,33 @@ def test_reranker_model(
         ).to(device)
         model.eval()
 
-        if getattr(model.config, "pad_token_id", None) is None and getattr(tokenizer, "pad_token_id", None) is not None:
+        if (
+            getattr(model.config, "pad_token_id", None) is None
+            and getattr(tokenizer, "pad_token_id", None) is not None
+        ):
             model.config.pad_token_id = tokenizer.pad_token_id
 
         # Verify attention backend if available
-        attn_backend = getattr(getattr(model, 'config', None), 'attn_implementation', None)
+        attn_backend = getattr(
+            getattr(model, "config", None), "attn_implementation", None
+        )
         if attn_backend:
             print(f"  Detected attn backend: {attn_backend}")
             if attn_backend != attn_implementation:
-                print(f"  ⚠ Attention backend mismatch (requested {attn_implementation}, got {attn_backend})")
-        
+                print(
+                    f"  ⚠ Attention backend mismatch (requested {attn_implementation}, got {attn_backend})"
+                )
+
         load_time = time.time() - start_time
         loaded_memory = measure_memory(dev)
         reserved_loaded = torch.cuda.memory_reserved(dev) / 1024**3
         memory_used = loaded_memory - initial_memory
         reserved_used = reserved_loaded - initial_reserved
-        
+
         print(f"  Load time: {load_time:.2f}s")
         print(f"  Memory used: {memory_used:.2f} GB (allocated)")
         print(f"  Memory reserved: {reserved_used:.2f} GB (delta)")
-        
+
         # Warmup
         print("  Warming up...")
         warmup_pairs = [
@@ -379,13 +400,15 @@ def test_reranker_model(
             max_length=8192,
         )
         warmup_memory = measure_memory(dev)
-        
+
         # Test single inference
         print("  Testing single inference...")
         query = "What is the capital of France?"
         document = "Paris is the capital and largest city of France."
 
-        instruction = "Given a web search query, retrieve relevant passages that answer the query"
+        instruction = (
+            "Given a web search query, retrieve relevant passages that answer the query"
+        )
         pairs = [_qwen3_reranker_format_pair(instruction, query, document)]
 
         start_time = time.time()
@@ -403,33 +426,36 @@ def test_reranker_model(
 
         print(f"  Inference time: {inference_time*1000:.2f}ms")
         print(f"  Reranker score (P(yes)): {score:.4f}")
-        
+
         # Get peak memory
         peak_memory = torch.cuda.max_memory_allocated(dev) / 1024**3
         peak_reserved = torch.cuda.max_memory_reserved(dev) / 1024**3
-        
-        results.update({
-            "success": True,
-            "load_time_s": load_time,
-            "memory_used_gb": memory_used,
-            "warmup_memory_gb": warmup_memory,
-            "peak_memory_gb": peak_memory,
-            "memory_reserved_used_gb": reserved_used,
-            "peak_memory_reserved_gb": peak_reserved,
-            "inference_time_ms": inference_time * 1000,
-            "test_score": score,
-        })
-        
+
+        results.update(
+            {
+                "success": True,
+                "load_time_s": load_time,
+                "memory_used_gb": memory_used,
+                "warmup_memory_gb": warmup_memory,
+                "peak_memory_gb": peak_memory,
+                "memory_reserved_used_gb": reserved_used,
+                "peak_memory_reserved_gb": peak_reserved,
+                "inference_time_ms": inference_time * 1000,
+                "test_score": score,
+            }
+        )
+
         # Clean up and force GC
         import gc
+
         del model, tokenizer
         torch.cuda.empty_cache()
         gc.collect()
-        
+
     except Exception as e:
         results["error"] = f"{type(e).__name__}: {e}"
         print(f"  ✗ Error: {results['error']}")
-    
+
     return results
 
 
@@ -441,29 +467,29 @@ def test_batch_inference(
 ) -> Dict[str, Any]:
     """
     Test batch inference with various batch sizes.
-    
+
     Args:
         model_id: HuggingFace model ID
         model_type: Model type (embedding or reranker)
         device: CUDA device
         batch_sizes: List of batch sizes to test
-        
+
     Returns:
         Batch test results dictionary
     """
     print_section(f"Batch Inference Test: {model_id}")
-    
+
     results = {
         "model_id": model_id,
         "model_type": model_type,
         "device": device,
         "batch_results": {},
     }
-    
+
     try:
         if model_type == "embedding" or model_type == "multimodal":
             from sentence_transformers import SentenceTransformer
-            
+
             model = SentenceTransformer(
                 model_id,
                 device=device,
@@ -472,41 +498,41 @@ def test_batch_inference(
                     "attn_implementation": "sdpa",
                 },
             )
-            
+
             for batch_size in batch_sizes:
                 print(f"\nTesting batch_size={batch_size}...")
-                
+
                 # Generate test texts
                 test_texts = [f"Test sentence number {i}" for i in range(batch_size)]
-                
+
                 # Clear cache and measure
                 torch.cuda.empty_cache()
                 torch.cuda.reset_peak_memory_stats(device)
                 initial_memory = measure_memory(device)
                 initial_reserved = torch.cuda.memory_reserved(device) / 1024**3
-                
+
                 # Inference
                 start_time = time.time()
                 embeddings = model.encode(test_texts, batch_size=batch_size)
-                if hasattr(embeddings, 'cpu'):
+                if hasattr(embeddings, "cpu"):
                     embeddings = embeddings.cpu().numpy()
                 if not isinstance(embeddings, np.ndarray):
                     embeddings = np.array(embeddings)
                 inference_time = time.time() - start_time
-                
+
                 peak_memory = torch.cuda.max_memory_allocated(device) / 1024**3
                 peak_reserved = torch.cuda.max_memory_reserved(device) / 1024**3
                 memory_used = peak_memory - initial_memory
                 reserved_used = peak_reserved - initial_reserved
-                
+
                 throughput = batch_size / inference_time
-                
+
                 print(f"  Time: {inference_time:.3f}s")
                 print(f"  Throughput: {throughput:.1f} texts/sec")
                 print(f"  Memory used: {memory_used:.2f} GB (allocated)")
                 print(f"  Memory reserved: {reserved_used:.2f} GB (delta)")
                 print(f"  Output shape: {embeddings.shape}")
-                
+
                 results["batch_results"][batch_size] = {
                     "inference_time_s": inference_time,
                     "throughput_texts_per_sec": throughput,
@@ -514,9 +540,9 @@ def test_batch_inference(
                     "memory_reserved_used_gb": reserved_used,
                     "output_shape": list(embeddings.shape),
                 }
-            
+
             del model
-            
+
         elif model_type == "reranker":
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -527,13 +553,18 @@ def test_batch_inference(
             )
             if tokenizer.pad_token is None and tokenizer.eos_token is not None:
                 tokenizer.pad_token = tokenizer.eos_token
-            if getattr(tokenizer, "pad_token_id", None) is None and tokenizer.eos_token_id is not None:
+            if (
+                getattr(tokenizer, "pad_token_id", None) is None
+                and tokenizer.eos_token_id is not None
+            ):
                 tokenizer.pad_token_id = tokenizer.eos_token_id
 
             yes_ids = tokenizer("yes", add_special_tokens=False).input_ids
             no_ids = tokenizer("no", add_special_tokens=False).input_ids
             if len(yes_ids) != 1 or len(no_ids) != 1:
-                raise RuntimeError(f'Expected "yes"/"no" to be single tokens, got yes={yes_ids}, no={no_ids}')
+                raise RuntimeError(
+                    f'Expected "yes"/"no" to be single tokens, got yes={yes_ids}, no={no_ids}'
+                )
             token_yes_id = yes_ids[0]
             token_no_id = no_ids[0]
 
@@ -544,17 +575,23 @@ def test_batch_inference(
                 trust_remote_code=True,
             ).to(device)
             model.eval()
-            if getattr(model.config, "pad_token_id", None) is None and getattr(tokenizer, "pad_token_id", None) is not None:
+            if (
+                getattr(model.config, "pad_token_id", None) is None
+                and getattr(tokenizer, "pad_token_id", None) is not None
+            ):
                 model.config.pad_token_id = tokenizer.pad_token_id
-            
+
             query = "What is machine learning?"
             instruction = "Given a web search query, retrieve relevant passages that answer the query"
-            
+
             for batch_size in batch_sizes:
                 print(f"\nTesting batch_size={batch_size}...")
 
                 # Generate test documents
-                documents = [f"Document {i} about machine learning and AI." for i in range(batch_size)]
+                documents = [
+                    f"Document {i} about machine learning and AI."
+                    for i in range(batch_size)
+                ]
 
                 # Clear cache and measure
                 torch.cuda.empty_cache()
@@ -599,16 +636,16 @@ def test_batch_inference(
                     "memory_reserved_used_gb": reserved_used,
                     "num_scores": len(scores),
                 }
-            
+
             del model, tokenizer
-        
+
         torch.cuda.empty_cache()
         results["success"] = True
-        
+
     except Exception as e:
         results["error"] = f"{type(e).__name__}: {e}"
         print(f"\n✗ Batch test failed: {results['error']}")
-    
+
     return results
 
 
@@ -650,68 +687,69 @@ def main():
         default="model_verification_report.json",
         help="Output JSON report file",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Validate arguments
     if not args.model and not args.all:
         parser.error("Either --model or --all must be specified")
-    
+
     # Check CUDA
     if not torch.cuda.is_available():
         print("✗ CUDA not available")
         sys.exit(1)
-    
+
     print(f"CUDA available: {torch.cuda.device_count()} GPU(s)")
-    
+
     # Determine models to test
     if args.all:
         models_to_test = list(MODEL_CONFIGS.keys())
     else:
         models_to_test = [args.model]
-    
+
     # Run tests
     report = {"models": {}}
-    
+
     for model_id in models_to_test:
         config = MODEL_CONFIGS[model_id]
         model_type = config["type"]
         device = config["device"]
-        
+
         print_section(f"Testing: {model_id}")
-        
+
         model_report = {
             "model_id": model_id,
             "model_type": model_type,
             "device": device,
         }
-        
+
         # Basic test with FP16 + sdpa (default)
         print("\n[Test 1] FP16 + sdpa (default configuration)")
         if model_type == "embedding" or model_type == "multimodal":
             test_func = test_embedding_model
         else:
             test_func = test_reranker_model
-        
+
         basic_results = test_func(model_id, device, torch.float16, "sdpa")
         model_report["basic_test"] = basic_results
-        
+
         # Compare dtypes if requested
         if args.compare_dtypes:
             print("\n[Test 2] FP32 comparison")
             fp32_results = test_func(model_id, device, torch.float32, "sdpa")
             model_report["fp32_test"] = fp32_results
-        
+
         # Compare attention if requested
         if args.compare_attn:
             print("\n[Test 3] Eager attention comparison")
             eager_results = test_func(model_id, device, torch.float16, "eager")
             model_report["eager_test"] = eager_results
-        
+
         # Batch inference test if requested
         if args.test_batch:
             # Extra cleanup between tests
             import gc as _gc
+
             torch.cuda.empty_cache()
             _gc.collect()
             batch_results = test_batch_inference(
@@ -721,17 +759,17 @@ def main():
                 config["test_batch_sizes"],
             )
             model_report["batch_test"] = batch_results
-        
+
         report["models"][model_id] = model_report
-    
+
     # Save report
     output_path = Path(args.output)
     with open(output_path, "w") as f:
         json.dump(report, f, indent=2)
-    
+
     print_section("Summary")
     print(f"Report saved to: {output_path}")
-    
+
     # Print summary
     for model_id, model_report in report["models"].items():
         basic_success = model_report.get("basic_test", {}).get("success", False)

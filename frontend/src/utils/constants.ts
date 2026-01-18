@@ -75,4 +75,3 @@ export const PARSE_METHODS = [
   { value: 'ocr', label: 'OCR' },
   { value: 'txt', label: 'Text' },
 ];
-

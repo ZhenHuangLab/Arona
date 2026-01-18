@@ -100,16 +100,16 @@
           - POST /api/documents/trigger-index → TriggerIndexResponse
           - GET /api/config/indexing → IndexingConfigResponse
           - PUT /api/config/indexing → IndexingConfigResponse
-          
+
           Backend (MODIFIED - defensive updates only):
           - POST /api/documents/process → Update IndexStatus after processing
-          
+
           Frontend (NEW):
           - IndexStatusBadge component (status badge with icon)
           - IndexingSettingsDialog component (configuration UI)
           - useIndexStatus hook (React Query)
           - useTriggerIndex mutation
-          
+
           Frontend (MODIFIED):
           - DocumentCard → Add IndexStatusBadge
           - LibraryView → Add "Refresh Index" button
@@ -2631,4 +2631,3 @@ Risks/Mitigations:
 ]]></CodeBlock>
   </Section>
 </Task>
-

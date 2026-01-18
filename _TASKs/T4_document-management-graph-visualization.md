@@ -95,7 +95,7 @@
           - NEW: DELETE /api/documents/delete/{filename} (soft delete)
           - UNCHANGED: GET /api/documents/list (backward compatibility)
           - UNCHANGED: GET /api/graph/data, /api/graph/stats
-          
+
           Frontend Components:
           - MODIFY: DocumentCard (add delete button, show metadata)
           - MODIFY: LibraryView (add details modal, storage location)
@@ -104,11 +104,11 @@
           - NEW: DocumentDetailsModal
           - NEW: ConfirmDeleteDialog
           - NEW: GraphControls
-          
+
           Frontend Hooks:
           - MODIFY: useDocuments (add deleteDocument mutation, fetch details)
           - MODIFY: useGraph (no changes, but GraphCanvas uses it differently)
-          
+
           Frontend API:
           - NEW: api/documents.ts - getDocumentDetails(), deleteDocument()
         </Text>
@@ -4078,4 +4078,3 @@ Zero technical debt. All exit criteria met.
   </Section>
 
 </Task>
-

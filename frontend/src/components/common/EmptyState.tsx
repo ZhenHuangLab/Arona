@@ -10,7 +10,7 @@ interface EmptyStateProps {
 
 /**
  * EmptyState Component
- * 
+ *
  * Displays an empty state placeholder with icon, title, and optional description/action.
  */
 export function EmptyState({
@@ -32,4 +32,3 @@ export function EmptyState({
     </div>
   );
 }
-

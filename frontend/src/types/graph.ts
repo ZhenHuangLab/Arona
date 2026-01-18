@@ -21,4 +21,3 @@ export interface GraphVisualizationConfig {
   linkDistance: number;
   chargeStrength: number;
 }
-

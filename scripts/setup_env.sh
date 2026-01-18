@@ -213,4 +213,3 @@ echo "Next steps:"
 echo "1. Verify configuration: python3 scripts/check_config.py"
 echo "2. Start backend: bash scripts/start_backend.sh"
 echo ""
-

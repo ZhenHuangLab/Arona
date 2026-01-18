@@ -1,14 +1,14 @@
 /**
  * Skip to Content Component
- * 
+ *
  * Accessibility feature that allows keyboard users to skip navigation
  * and jump directly to main content.
- * 
+ *
  * WCAG 2.1 AA Compliance:
  * - Provides bypass mechanism for repeated content
  * - Visible on focus for keyboard navigation
  * - Hidden from view when not focused
- * 
+ *
  * Usage:
  * Place at the very top of the app, before any other content.
  */
@@ -22,4 +22,3 @@ export function SkipToContent() {
     </a>
   );
 }
-

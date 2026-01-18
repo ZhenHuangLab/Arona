@@ -216,7 +216,7 @@ To migrate from local FlagEmbedding reranker to API:
    # Change from:
    RERANKER_PROVIDER=local
    RERANKER_MODEL_PATH=~/.huggingface/models/bge-reranker-v2-gemma
-   
+
    # To:
    RERANKER_PROVIDER=api
    RERANKER_MODEL_NAME=jina-reranker-v2-base-multilingual
@@ -243,4 +243,3 @@ For issues or questions:
 ## License
 
 Same as RAG-Anything main project.
-

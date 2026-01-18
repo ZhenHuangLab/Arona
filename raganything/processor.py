@@ -328,7 +328,9 @@ class ProcessorMixin:
 
             if self.config.parser == "mineru":
                 # Add MinerU device/VRAM hints from config (if not overridden by caller)
-                if "device" not in kwargs and getattr(self.config, "mineru_device", None):
+                if "device" not in kwargs and getattr(
+                    self.config, "mineru_device", None
+                ):
                     kwargs["device"] = self.config.mineru_device
                     self.logger.info(
                         f"Using configured MinerU device: {self.config.mineru_device}"

@@ -35,4 +35,3 @@ export function Header() {
     </header>
   );
 }
-

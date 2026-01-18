@@ -13,9 +13,9 @@ interface LoadingSpinnerProps {
 
 /**
  * Loading Spinner Component
- * 
+ *
  * Displays an animated loading spinner with optional text
- * 
+ *
  * Usage:
  * ```tsx
  * <LoadingSpinner size="md" text="Loading..." />
@@ -43,7 +43,7 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
 
 /**
  * Full Page Loading Component
- * 
+ *
  * Displays a centered loading spinner that fills the entire viewport
  */
 export const FullPageLoading: React.FC<{ text?: string }> = ({ text = 'Loading...' }) => {
@@ -56,7 +56,7 @@ export const FullPageLoading: React.FC<{ text?: string }> = ({ text = 'Loading..
 
 /**
  * Inline Loading Component
- * 
+ *
  * Displays a small inline loading spinner
  */
 export const InlineLoading: React.FC<{ text?: string }> = ({ text }) => {
@@ -67,4 +67,3 @@ export const InlineLoading: React.FC<{ text?: string }> = ({ text }) => {
     </div>
   );
 };
-

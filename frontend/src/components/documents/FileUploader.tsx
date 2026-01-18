@@ -21,7 +21,7 @@ interface FileWithStatus {
 
 /**
  * FileUploader Component
- * 
+ *
  * Drag-and-drop file uploader with progress tracking.
  * Supports multiple files and displays upload status.
  */
@@ -226,4 +226,3 @@ export function FileUploader({
     </div>
   );
 }
-

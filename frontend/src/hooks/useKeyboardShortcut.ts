@@ -12,18 +12,18 @@ interface KeyboardShortcutOptions {
 
 /**
  * useKeyboardShortcut Hook
- * 
+ *
  * Registers keyboard shortcuts with modifier key support.
  * Automatically handles cleanup on unmount.
- * 
+ *
  * Accessibility:
  * - Supports standard keyboard shortcuts
  * - Respects enabled state for conditional shortcuts
  * - Prevents default browser behavior when needed
- * 
+ *
  * @param callback - Function to call when shortcut is triggered
  * @param options - Shortcut configuration
- * 
+ *
  * @example
  * ```tsx
  * // Ctrl+K to open search
@@ -32,7 +32,7 @@ interface KeyboardShortcutOptions {
  *   ctrl: true,
  *   preventDefault: true,
  * });
- * 
+ *
  * // Escape to close modal
  * useKeyboardShortcut(() => setModalOpen(false), {
  *   key: 'Escape',
@@ -87,10 +87,10 @@ export function useKeyboardShortcut(
 
 /**
  * useEscapeKey Hook
- * 
+ *
  * Convenience hook for handling Escape key press.
  * Commonly used for closing modals, dialogs, and dropdowns.
- * 
+ *
  * @param callback - Function to call when Escape is pressed
  * @param enabled - Whether the shortcut is active
  */
@@ -103,10 +103,10 @@ export function useEscapeKey(callback: () => void, enabled = true) {
 
 /**
  * useEnterKey Hook
- * 
+ *
  * Convenience hook for handling Enter key press.
  * Commonly used for form submissions and confirmations.
- * 
+ *
  * @param callback - Function to call when Enter is pressed
  * @param enabled - Whether the shortcut is active
  * @param preventDefault - Whether to prevent default behavior
@@ -122,4 +122,3 @@ export function useEnterKey(
     preventDefault,
   });
 }
-

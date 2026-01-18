@@ -44,7 +44,9 @@ def prepend_to_ld_library_path(dir_path: Path) -> None:
     if parts and parts[0] == lib_dir:
         return
     parts = [p for p in parts if p != lib_dir]
-    os.environ["LD_LIBRARY_PATH"] = os.pathsep.join([lib_dir, *parts]) if parts else lib_dir
+    os.environ["LD_LIBRARY_PATH"] = (
+        os.pathsep.join([lib_dir, *parts]) if parts else lib_dir
+    )
 
 
 def needs_local_gpu_torch(config: BackendConfig) -> bool:
@@ -55,18 +57,26 @@ def needs_local_gpu_torch(config: BackendConfig) -> bool:
         is_cuda_device = isinstance(device, str) and device.startswith("cuda")
         return bool(
             model.provider == ProviderType.LOCAL_GPU
-            or (model.provider == ProviderType.LOCAL and model.base_url is None and is_cuda_device)
+            or (
+                model.provider == ProviderType.LOCAL
+                and model.base_url is None
+                and is_cuda_device
+            )
         )
 
     if _is_local_gpu_model(config.embedding):
         return True
 
-    if getattr(config, "multimodal_embedding", None) and _is_local_gpu_model(config.multimodal_embedding):
+    if getattr(config, "multimodal_embedding", None) and _is_local_gpu_model(
+        config.multimodal_embedding
+    ):
         return True
 
     reranker = config.reranker
     if reranker and reranker.enabled:
-        is_cuda_device = isinstance(reranker.device, str) and reranker.device.startswith("cuda")
+        is_cuda_device = isinstance(
+            reranker.device, str
+        ) and reranker.device.startswith("cuda")
         if reranker.provider in {"local", "local_gpu"} and is_cuda_device:
             return True
 
@@ -92,4 +102,3 @@ def ensure_torch_cuda_libs(config: BackendConfig) -> None:
             "Local GPU provider is configured but torch `lib/` directory was not found; "
             "torch import may fail if CUDA runtime libraries are misconfigured."
         )
-

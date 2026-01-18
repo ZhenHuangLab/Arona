@@ -1,6 +1,6 @@
 /**
  * API Type Definitions
- * 
+ *
  * TypeScript interfaces matching backend Pydantic models
  */
 

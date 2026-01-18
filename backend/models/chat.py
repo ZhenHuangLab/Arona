@@ -6,7 +6,6 @@ Follows the frozen contract from T8_chat-ui-sessions-sqlite.md Phase P0.
 
 from __future__ import annotations
 
-from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
@@ -48,7 +47,9 @@ class ChatSession(BaseModel):
     created_at: str = Field(..., description="ISO8601 timestamp")
     updated_at: str = Field(..., description="ISO8601 timestamp")
     deleted_at: Optional[str] = Field(default=None, description="Soft delete timestamp")
-    metadata: Optional[dict[str, Any]] = Field(default=None, description="Extension JSON")
+    metadata: Optional[dict[str, Any]] = Field(
+        default=None, description="Extension JSON"
+    )
 
 
 class ChatSessionWithStats(ChatSession):
@@ -67,7 +68,9 @@ class ChatMessage(BaseModel):
     session_id: str = Field(..., description="UUID of parent session")
     role: MessageRole = Field(..., description="user, assistant, or system")
     content: str = Field(..., description="Message content")
-    token_count: Optional[int] = Field(default=None, description="Token count for truncation")
+    token_count: Optional[int] = Field(
+        default=None, description="Token count for truncation"
+    )
     user_id: Optional[str] = Field(default=None, description="Reserved for multi-user")
     created_at: str = Field(..., description="ISO8601 timestamp")
     metadata: Optional[dict[str, Any]] = Field(
@@ -111,7 +114,9 @@ class UpdateSessionRequest(BaseModel):
 class MultimodalContent(BaseModel):
     """Multimodal content for turn requests."""
 
-    img_base64: Optional[str] = Field(default=None, description="Base64 image (will be persisted)")
+    img_base64: Optional[str] = Field(
+        default=None, description="Base64 image (will be persisted)"
+    )
     img_mime_type: Optional[str] = Field(default=None, description="e.g., image/png")
 
 
@@ -124,8 +129,12 @@ class TurnRequest(BaseModel):
     multimodal_content: Optional[MultimodalContent] = Field(default=None)
     max_tokens: Optional[int] = Field(default=None)
     temperature: Optional[float] = Field(default=None)
-    history_limit: int = Field(default=20, description="Max recent messages for history")
-    max_history_tokens: int = Field(default=8000, description="Token budget for history")
+    history_limit: int = Field(
+        default=20, description="Max recent messages for history"
+    )
+    max_history_tokens: int = Field(
+        default=8000, description="Token budget for history"
+    )
 
 
 # =============================================================================
@@ -137,14 +146,18 @@ class SessionListResponse(BaseModel):
     """Response for GET /api/chat/sessions."""
 
     sessions: list[ChatSessionWithStats]
-    next_cursor: Optional[str] = Field(default=None, description="Base64(JSON) cursor for next page")
+    next_cursor: Optional[str] = Field(
+        default=None, description="Base64(JSON) cursor for next page"
+    )
     has_more: bool = Field(default=False)
 
 
 class MessageListResponse(BaseModel):
     """Response for GET /api/chat/sessions/{session_id}/messages."""
 
-    messages: list[ChatMessage] = Field(..., description="Messages in created_at ASC order")
+    messages: list[ChatMessage] = Field(
+        ..., description="Messages in created_at ASC order"
+    )
     next_cursor: Optional[str] = Field(
         default=None, description="Base64(JSON) cursor for loading older messages"
     )
@@ -157,7 +170,9 @@ class DeleteSessionResponse(BaseModel):
     id: str
     deleted: bool = True
     hard: bool = False
-    deleted_at: Optional[str] = Field(default=None, description="Timestamp for soft delete")
+    deleted_at: Optional[str] = Field(
+        default=None, description="Timestamp for soft delete"
+    )
 
 
 class TurnResponse(BaseModel):
@@ -180,7 +195,9 @@ class ErrorDetail(BaseModel):
 
     code: str = Field(..., description="Machine-readable error code")
     message: str = Field(..., description="Human-readable description")
-    extra: Optional[dict[str, Any]] = Field(default=None, description="Additional context")
+    extra: Optional[dict[str, Any]] = Field(
+        default=None, description="Additional context"
+    )
 
 
 class ErrorResponse(BaseModel):

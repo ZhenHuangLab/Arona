@@ -107,10 +107,10 @@
           - backend/providers/local_embedding.py: LocalEmbeddingProvider, LocalRerankerProvider
           - backend/services/model_factory.py: 注册local provider
           - backend/config.py: 添加local provider配置支持
-          
+
           Backend (MODIFIED):
           - backend/services/model_factory.py: create_embedding_provider()添加local分支
-          
+
           Configuration (NEW):
           - env.backend.example: 添加local embedding配置示例
           - configs/local_embedding.yaml: 本地embedding配置示例
@@ -130,7 +130,7 @@
 
   <Section id="technical_design">
     <Heading>2) 技术方案设计</Heading>
-    
+
     <Subsection id="2.1">
       <Title>2.1 核心方案与GPU映射（已确定）</Title>
       <Text>
@@ -152,21 +152,21 @@
         - Pascal 架构不支持 BF16/FA2，采用 FP16 + SDPA/Eager；按 GPU 分配模型，避免跨卡通信与资源争用。
       </Text>
     </Subsection>
-    
+
     <Subsection id="2.2">
       <Title>2.2 模型与维度</Title>
       <Text>
         - **Embedding**: Qwen/Qwen3-Embedding-4B（Hugging Face）
           - 参数量：4B；显存：≈8GB（FP16）；输出维度：最高 2560（建议 2560）
-        
+
         - **Reranker**: Qwen/Qwen3-Reranker-4B（Hugging Face）
           - 参数量：4B；显存：≈8GB（FP16）；输入：query + document pairs；输出：relevance scores
-        
+
         - **Multimodal（可选）**: Alibaba-NLP/gme-Qwen2-VL-2B-Instruct
           - 参数量：≈2B；显存：≈4GB（FP16）；输出维度：1536；支持：文本/图片/联合 embedding
       </Text>
     </Subsection>
-    
+
     <Subsection id="2.3">
       <Title>2.3 架构设计</Title>
       <Text>
@@ -241,7 +241,7 @@
         - 模型与 GPU 绑定的进程内加载，避免不必要的跨卡内存拷贝与竞争。
       </Text>
     </Subsection>
-    
+
     <Subsection id="2.4">
       <Title>2.4 配置管理</Title>
       <Text>
@@ -301,7 +301,7 @@
         - LOCAL_GPU = "local_gpu"  # 本地GPU推理（区分于LOCAL=Ollama等API）
       </Text>
     </Subsection>
-    
+
     <Subsection id="2.5">
       <Title>2.5 性能优化策略</Title>
       <Text>

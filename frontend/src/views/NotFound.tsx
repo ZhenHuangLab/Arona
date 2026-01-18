@@ -4,7 +4,7 @@ import { Home, ArrowLeft } from 'lucide-react';
 
 /**
  * Not Found View (404)
- * 
+ *
  * Displayed when user navigates to a non-existent route
  */
 export const NotFound: React.FC = () => {
@@ -39,4 +39,3 @@ export const NotFound: React.FC = () => {
     </div>
   );
 };
-

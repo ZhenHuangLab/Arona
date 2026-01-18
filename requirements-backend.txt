@@ -1,3 +1,4 @@
+--extra-index-url https://pypi.org/simple
 # Backend API Dependencies
 #
 # Default: local Qwen3-VL embedding/reranking (CUDA 11.8 / cu118).
@@ -7,27 +8,37 @@
 # - PyTorch cu118 wheels: https://download.pytorch.org/whl/cu118
 # - PyPI for the rest:   https://pypi.org/simple
 --index-url https://download.pytorch.org/whl/cu118
---extra-index-url https://pypi.org/simple
-
-# FastAPI and server
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-python-multipart>=0.0.6  # For file uploads
-
-# Data validation and configuration
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
-pyyaml>=6.0
-
-# HTTP client (for testing)
-httpx>=0.25.0
-requests>=2.31.0
+accelerate>=0.25.0
 
 # Async support
 aiofiles>=23.0.0
 
+# FastAPI and server
+fastapi>=0.104.0
+
+# HTTP client (for testing)
+httpx>=0.25.0
+
+# NumPy (compatibility constraint)
+numpy<2  # LOCKED: sentence-transformers has compatibility issues with NumPy 2.x
+
+# Image processing (required by Qwen3-VL processors)
+pillow>=10.0.0
+
+# Data validation and configuration
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
 # Logging and monitoring
 python-json-logger>=2.0.0
+python-multipart>=0.0.6  # For file uploads
+pyyaml>=6.0
+qwen-vl-utils>=0.0.14
+requests>=2.31.0
+safetensors>=0.4.0
+
+# Embedding / inference utilities
+sentence-transformers>=2.3.0
 
 # ============================================================================
 # Local GPU Dependencies (Default - Qwen3-VL embedding/reranking)
@@ -38,19 +49,8 @@ python-json-logger>=2.0.0
 # PyTorch (cu118)
 torch==2.7.1+cu118
 torchvision==0.22.1+cu118
-triton==3.3.1; platform_machine == "x86_64" and sys_platform == "linux"
 
 # Transformers and Qwen3-VL
 transformers>=4.57.0
-qwen-vl-utils>=0.0.14
-
-# Embedding / inference utilities
-sentence-transformers>=2.3.0
-accelerate>=0.25.0
-safetensors>=0.4.0
-
-# NumPy (compatibility constraint)
-numpy<2  # LOCKED: sentence-transformers has compatibility issues with NumPy 2.x
-
-# Image processing (required by Qwen3-VL processors)
-pillow>=10.0.0
+triton==3.3.1; platform_machine == "x86_64" and sys_platform == "linux"
+uvicorn[standard]>=0.24.0

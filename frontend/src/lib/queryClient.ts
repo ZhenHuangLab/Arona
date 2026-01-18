@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/react-query';
 
 /**
  * React Query Client Configuration
- * 
+ *
  * Default options:
  * - Disable refetch on window focus (avoid unnecessary API calls)
  * - Retry failed queries once
@@ -26,7 +26,7 @@ export const queryClient = new QueryClient({
 
 /**
  * Query Keys
- * 
+ *
  * Centralized query key definitions for type safety and consistency
  */
 export const queryKeys = {
@@ -44,4 +44,3 @@ export const queryKeys = {
     stats: () => [...queryKeys.graph.all, 'stats'] as const,
   },
 } as const;
-

@@ -85,4 +85,3 @@ export function SidebarRail({ onExpand }: SidebarRailProps) {
     </aside>
   );
 }
-

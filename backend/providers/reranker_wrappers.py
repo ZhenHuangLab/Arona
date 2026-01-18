@@ -27,4 +27,3 @@ class APIRerankerProvider(BaseRerankerProvider):
         _ = kwargs
         scores = await self._reranker.score_async(query, documents)
         return [float(s) for s in scores]
-

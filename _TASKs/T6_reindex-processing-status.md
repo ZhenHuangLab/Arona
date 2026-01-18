@@ -205,7 +205,7 @@ async def filter_keys(self, keys: set[str]) -> set[str]:
 
 ### Step 1: 修改重新索引逻辑（方案A + 方案B）
 
-**文件**: `backend/routers/documents.py`  
+**文件**: `backend/routers/documents.py`
 **位置**: 第821-863行
 
 **修改前**:
@@ -264,7 +264,7 @@ for status_record in target_statuses:
             f"Skipping {status_record.file_path}: already {status_record.status.value}"
         )
         continue
-    
+
     # For PROCESSING status: skip in non-force mode, reset in force mode
     if status_record.status == StatusEnum.PROCESSING:
         if not req.force:
@@ -275,10 +275,10 @@ for status_record in target_statuses:
             continue
         # In force mode, reset PROCESSING to PENDING to retry
         # (file might be stuck in processing state)
-    
+
     # Check if we should re-index this file
     should_reindex = False
-    
+
     if req.force:
         # Force mode: re-index all files regardless of status
         should_reindex = True
@@ -292,7 +292,7 @@ for status_record in target_statuses:
             f"Skipping {status_record.file_path}: status={status_record.status.value}, force=False"
         )
         continue
-    
+
     if should_reindex:
         # Update status to pending for re-indexing
         state.index_status_service.update_status_field(
@@ -758,5 +758,3 @@ def _generate_content_based_doc_id(self, content_list: List[Dict[str, Any]]) -> 
 - 先实施方案A解决紧急问题
 - 在测试环境中验证方案B
 - 逐步推进，确保系统稳定性
-
-

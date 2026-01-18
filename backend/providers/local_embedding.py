@@ -13,7 +13,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Union, Any, Dict
+from typing import List, Optional, Union, Dict
 import numpy as np
 import torch
 from PIL import Image
@@ -36,6 +36,7 @@ class BatchRequest:
         future: asyncio.Future to return the result
         timestamp: Request arrival time (for timeout calculation)
     """
+
     texts: List[str]
     future: asyncio.Future
     timestamp: float
@@ -126,7 +127,9 @@ class BatchProcessor:
                 else:
                     await asyncio.wait_for(self._processor_task, timeout=timeout)
             except asyncio.TimeoutError:
-                logger.warning("BatchProcessor shutdown timed out; cancelling background task")
+                logger.warning(
+                    "BatchProcessor shutdown timed out; cancelling background task"
+                )
                 self._processor_task.cancel()
                 try:
                     await self._processor_task
@@ -170,11 +173,7 @@ class BatchProcessor:
         future: asyncio.Future = loop.create_future()
 
         # Create batch request
-        request = BatchRequest(
-            texts=texts,
-            future=future,
-            timestamp=time.time()
-        )
+        request = BatchRequest(texts=texts, future=future, timestamp=time.time())
 
         # Add to queue
         await self.queue.put(request)
@@ -248,7 +247,9 @@ class BatchProcessor:
         first_request_time = first_request.timestamp
 
         # Track token budget if enabled
-        total_tokens = self._count_request_tokens(first_request) if self.max_batch_tokens else 0
+        total_tokens = (
+            self._count_request_tokens(first_request) if self.max_batch_tokens else 0
+        )
 
         # First, try to drain additional deferred requests into this batch
         while self._deferred and len(batch) < self.max_batch_size:
@@ -288,8 +289,7 @@ class BatchProcessor:
             while len(batch) < self.max_batch_size and remaining_time > 0:
                 try:
                     request = await asyncio.wait_for(
-                        self.queue.get(),
-                        timeout=remaining_time
+                        self.queue.get(), timeout=remaining_time
                     )
                     if request is None:
                         break
@@ -371,9 +371,7 @@ class BatchProcessor:
             # Perform batch inference in thread pool to avoid blocking event loop
             loop = asyncio.get_event_loop()
             all_embeddings = await loop.run_in_executor(
-                None,
-                self._encode_sync,
-                all_texts
+                None, self._encode_sync, all_texts
             )
 
             # Distribute results to individual futures
@@ -443,7 +441,11 @@ class BatchProcessor:
         try:
             # sentence-transformers exposes .tokenize which returns dict-like with input_ids
             tokenized = self.model.tokenize(texts)  # type: ignore[attr-defined]
-            input_ids = tokenized.get("input_ids") if isinstance(tokenized, dict) else getattr(tokenized, "input_ids", None)
+            input_ids = (
+                tokenized.get("input_ids")
+                if isinstance(tokenized, dict)
+                else getattr(tokenized, "input_ids", None)
+            )
             if input_ids is None:
                 raise AttributeError("tokenize() returned no input_ids")
             return sum(len(ids) for ids in input_ids)
@@ -454,14 +456,14 @@ class BatchProcessor:
 
 class LocalEmbeddingProvider(BaseEmbeddingProvider):
     """Local GPU embedding provider using sentence-transformers."""
-    
+
     def __init__(self, config: ModelConfig):
         """
         Initialize local embedding provider.
-        
+
         Args:
             config: Model configuration with device, dtype, and model_name
-        
+
         Raises:
             ValueError: If required configuration is missing
             RuntimeError: If model loading fails
@@ -469,20 +471,20 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
         self.config = config
         self.model_name = config.model_name
         self._embedding_dim = config.embedding_dim
-        
+
         # Get device from extra_params or default to cuda:0
         self.device = config.extra_params.get("device", "cuda:0")
         dtype_str = config.extra_params.get("dtype", "float16")
         attn_impl = config.extra_params.get("attn_implementation", "sdpa")
-        
+
         # Convert dtype string to torch dtype
         self.dtype = torch.float16 if dtype_str == "float16" else torch.float32
-        
+
         logger.info(
             f"Loading local embedding model: {self.model_name} "
             f"(device={self.device}, dtype={dtype_str}, attn={attn_impl})"
         )
-        
+
         try:
             # Load model with sentence-transformers
             # Note: sentence-transformers handles model_kwargs internally
@@ -491,10 +493,10 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
                 "attn_implementation": attn_impl,
                 "trust_remote_code": True,
             }
-            
+
             # Get model path from config or use model_name for HF download
             model_path = config.extra_params.get("model_path", self.model_name)
-            
+
             self.model = SentenceTransformer(
                 model_path,
                 device=self.device,
@@ -515,20 +517,22 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
                         "Embedding dimension not provided and could not be determined from model"
                     )
                 self._embedding_dim = model_dim
-                logger.info(f"Detected embedding dimension from model: {self._embedding_dim}")
+                logger.info(
+                    f"Detected embedding dimension from model: {self._embedding_dim}"
+                )
             elif model_dim is not None and self._embedding_dim != model_dim:
                 raise ValueError(
                     f"Configured embedding_dim ({self._embedding_dim}) does not match model dimension ({model_dim})"
                 )
-            
+
             # Verify model dtype
-            if hasattr(self.model, '_first_module'):
+            if hasattr(self.model, "_first_module"):
                 actual_dtype = next(self.model._first_module().parameters()).dtype
                 if actual_dtype != self.dtype:
                     logger.warning(
                         f"Model dtype mismatch: expected {self.dtype}, got {actual_dtype}"
                     )
-            
+
             # Warmup inference to allocate GPU memory
             logger.info("Performing warmup inference...")
             _ = self.model.encode(
@@ -536,13 +540,13 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
                 convert_to_tensor=True,
                 show_progress_bar=False,
             )
-            
+
             # Log memory usage
             if torch.cuda.is_available():
                 allocated = torch.cuda.memory_allocated(self.device) / 1024**3
                 logger.info(f"GPU memory allocated: {allocated:.2f} GB")
 
-            logger.info(f"Local embedding model loaded successfully")
+            logger.info("Local embedding model loaded successfully")
 
             # Initialize batch processor
             max_batch_size = config.extra_params.get("max_batch_size", 32)
@@ -569,12 +573,8 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
         except Exception as e:
             logger.error(f"Failed to load local embedding model: {e}")
             raise RuntimeError(f"Failed to load local embedding model: {e}") from e
-    
-    async def embed(
-        self,
-        texts: List[str],
-        **kwargs
-    ) -> np.ndarray:
+
+    async def embed(self, texts: List[str], **kwargs) -> np.ndarray:
         """
         Generate embeddings for input texts using dynamic batching.
 
@@ -613,7 +613,7 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
         logger.info("Shutting down LocalEmbeddingProvider...")
         await self.batch_processor.shutdown()
         logger.info("LocalEmbeddingProvider shutdown complete")
-    
+
     @property
     def embedding_dim(self) -> int:
         """Return the dimensionality of embeddings."""
@@ -626,10 +626,10 @@ class LocalRerankerProvider(BaseRerankerProvider):
     def __init__(self, config: ModelConfig):
         """
         Initialize local reranker provider.
-        
+
         Args:
             config: Model configuration with device, dtype, and model_name
-        
+
         Raises:
             ValueError: If required configuration is missing
             RuntimeError: If model loading fails
@@ -661,7 +661,7 @@ class LocalRerankerProvider(BaseRerankerProvider):
             "system_prompt",
             (
                 "Judge whether the Document meets the requirements based on the Query and the Instruct provided. "
-                "Note that the answer can only be \"yes\" or \"no\"."
+                'Note that the answer can only be "yes" or "no".'
             ),
         )
 
@@ -716,15 +716,18 @@ class LocalRerankerProvider(BaseRerankerProvider):
                 f"<|im_start|>system\n{self.system_prompt}<|im_end|>\n"
                 "<|im_start|>user\n"
             )
-            suffix = (
-                "<|im_end|>\n"
-                "<|im_start|>assistant\n"
-                "<think>\n\n</think>\n\n"
+            suffix = "<|im_end|>\n" "<|im_start|>assistant\n" "<think>\n\n</think>\n\n"
+            self._prefix_token_ids = self.tokenizer.encode(
+                prefix, add_special_tokens=False
             )
-            self._prefix_token_ids = self.tokenizer.encode(prefix, add_special_tokens=False)
-            self._suffix_token_ids = self.tokenizer.encode(suffix, add_special_tokens=False)
+            self._suffix_token_ids = self.tokenizer.encode(
+                suffix, add_special_tokens=False
+            )
 
-            if len(self._prefix_token_ids) + len(self._suffix_token_ids) >= self.max_length:
+            if (
+                len(self._prefix_token_ids) + len(self._suffix_token_ids)
+                >= self.max_length
+            ):
                 raise ValueError(
                     "Reranker prompt template is too long for max_length="
                     f"{self.max_length} (prefix={len(self._prefix_token_ids)}, suffix={len(self._suffix_token_ids)})"
@@ -759,7 +762,7 @@ class LocalRerankerProvider(BaseRerankerProvider):
                 allocated = torch.cuda.memory_allocated(self.device) / 1024**3
                 logger.info(f"GPU memory allocated: {allocated:.2f} GB")
 
-            logger.info(f"Local reranker model loaded successfully")
+            logger.info("Local reranker model loaded successfully")
 
         except Exception as e:
             logger.error(f"Failed to load local reranker model: {e}")
@@ -798,7 +801,9 @@ class LocalRerankerProvider(BaseRerankerProvider):
 
         Returns a dict suitable for ``AutoModelForCausalLM`` forward pass.
         """
-        max_pair_len = self.max_length - len(self._prefix_token_ids) - len(self._suffix_token_ids)
+        max_pair_len = (
+            self.max_length - len(self._prefix_token_ids) - len(self._suffix_token_ids)
+        )
         if max_pair_len <= 0:
             raise ValueError(
                 "Invalid max_length for reranker batching: "
@@ -832,25 +837,24 @@ class LocalRerankerProvider(BaseRerankerProvider):
         )
 
         # Move tensors to device
-        return {k: v.to(self.device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
-    
-    async def rerank(
-        self,
-        query: str,
-        documents: List[str],
-        **kwargs
-    ) -> List[float]:
+        return {
+            k: v.to(self.device)
+            for k, v in batch.items()
+            if isinstance(v, torch.Tensor)
+        }
+
+    async def rerank(self, query: str, documents: List[str], **kwargs) -> List[float]:
         """
         Rerank documents for a query.
-        
+
         Args:
             query: Search query
             documents: List of document texts to rerank
             **kwargs: Additional parameters (ignored for now)
-            
+
         Returns:
             List of relevance scores (same length as documents)
-        
+
         Raises:
             RuntimeError: If reranking fails
         """
@@ -876,7 +880,9 @@ class LocalRerankerProvider(BaseRerankerProvider):
             logger.error(f"Reranking failed: {e}")
             raise RuntimeError(f"Reranking failed: {e}") from e
 
-    def _rerank_sync(self, query: str, documents: List[str], instruction: str) -> List[float]:
+    def _rerank_sync(
+        self, query: str, documents: List[str], instruction: str
+    ) -> List[float]:
         """
         Synchronous reranking method for thread pool execution.
 
@@ -894,7 +900,9 @@ class LocalRerankerProvider(BaseRerankerProvider):
 
                 # Build instruction-aware pairs
                 batch_pairs = [
-                    self._format_pair(instruction=instruction, query=query, document=doc)
+                    self._format_pair(
+                        instruction=instruction, query=query, document=doc
+                    )
                     for doc in batch_docs
                 ]
 
@@ -958,12 +966,13 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
         self.max_image_tokens = config.extra_params.get("max_image_tokens", 1280)
         self.max_length = config.extra_params.get("max_length", 1800)
         self.default_instruction = config.extra_params.get(
-            "default_instruction",
-            "You are a helpful assistant."
+            "default_instruction", "You are a helpful assistant."
         )
         self.normalize = config.extra_params.get("normalize", True)
         self.allow_image_urls = config.extra_params.get("allow_image_urls", False)
-        self.max_image_bytes = config.extra_params.get("max_image_bytes", 10 * 1024 * 1024)
+        self.max_image_bytes = config.extra_params.get(
+            "max_image_bytes", 10 * 1024 * 1024
+        )
 
         logger.info(
             f"Loading multimodal embedding model: {self.model_name} "
@@ -982,10 +991,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
                 "trust_remote_code": True,
             }
 
-            self.model = AutoModel.from_pretrained(
-                model_path,
-                **model_kwargs
-            )
+            self.model = AutoModel.from_pretrained(model_path, **model_kwargs)
             self.model.eval()
             self.model.to(self.device)
 
@@ -999,7 +1005,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
                 max_pixels=max_pixels,
                 trust_remote_code=True,
             )
-            self.processor.tokenizer.padding_side = 'right'
+            self.processor.tokenizer.padding_side = "right"
 
             # Warmup inference to allocate GPU memory
             logger.info("Performing warmup inference...")
@@ -1007,7 +1013,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
                 warmup_inputs = self._prepare_inputs(
                     texts=["warmup text"],
                     images=None,
-                    instruction=self.default_instruction
+                    instruction=self.default_instruction,
                 )
                 _ = self._forward(**warmup_inputs)
 
@@ -1016,7 +1022,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
                 allocated = torch.cuda.memory_allocated(self.device) / 1024**3
                 logger.info(f"GPU memory allocated: {allocated:.2f} GB")
 
-            logger.info(f"Multimodal embedding model loaded successfully")
+            logger.info("Multimodal embedding model loaded successfully")
 
         except Exception as e:
             logger.error(f"Failed to load multimodal embedding model: {e}")
@@ -1026,7 +1032,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
         self,
         texts: List[str],
         images: Optional[List[Union[str, Image.Image]]],
-        instruction: Optional[str] = None
+        instruction: Optional[str] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Prepare inputs for the multimodal model.
@@ -1047,11 +1053,11 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
         all_images = []
 
         for i, text in enumerate(texts):
-            input_str = ''
+            input_str = ""
 
             # Add image token if image is provided
             if images is not None and i < len(images):
-                input_str += '<|vision_start|><|image_pad|><|vision_end|>'
+                input_str += "<|vision_start|><|image_pad|><|vision_end|>"
                 img = self._load_image(images[i])
                 all_images.append(img)
 
@@ -1061,9 +1067,9 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
 
             # Format as chat message
             message = (
-                f'<|im_start|>system\n{instruction}<|im_end|>\n'
-                f'<|im_start|>user\n{input_str}<|im_end|>\n'
-                f'<|im_start|>assistant\n<|endoftext|>'
+                f"<|im_start|>system\n{instruction}<|im_end|>\n"
+                f"<|im_start|>user\n{input_str}<|im_end|>\n"
+                f"<|im_start|>assistant\n<|endoftext|>"
             )
             all_messages.append(message)
 
@@ -1074,12 +1080,14 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
             padding="longest",
             truncation=True,
             max_length=self.max_length,
-            return_tensors='pt'
+            return_tensors="pt",
         )
 
         # Move to device
-        inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                  for k, v in inputs.items()}
+        inputs = {
+            k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+            for k, v in inputs.items()
+        }
 
         return inputs
 
@@ -1163,7 +1171,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
         inputs_embeds: Optional[torch.FloatTensor] = None,
         pixel_values: Optional[torch.Tensor] = None,
         image_grid_thw: Optional[torch.LongTensor] = None,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         """
         Forward pass through the model to generate embeddings.
@@ -1187,8 +1195,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
                 # Encode images
                 pixel_values = pixel_values.type(self.model.visual.get_dtype())
                 image_embeds = self.model.visual(
-                    pixel_values,
-                    grid_thw=image_grid_thw
+                    pixel_values, grid_thw=image_grid_thw
                 ).to(inputs_embeds.device)
 
                 # Replace image tokens with image embeddings
@@ -1199,7 +1206,9 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
         outputs = self.model.model(
             input_ids=None,
             position_ids=position_ids,
-            attention_mask=attention_mask.to(inputs_embeds.device) if attention_mask is not None else None,
+            attention_mask=attention_mask.to(inputs_embeds.device)
+            if attention_mask is not None
+            else None,
             inputs_embeds=inputs_embeds,
             return_dict=True,
             output_hidden_states=True,
@@ -1207,7 +1216,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
 
         # Pool embeddings (use last token for right-padded sequences)
         # Check if left-padded (all sequences end with valid tokens)
-        left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
+        left_padding = attention_mask[:, -1].sum() == attention_mask.shape[0]
 
         if left_padding:
             # Left-padded: take last hidden state
@@ -1218,7 +1227,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
             batch_size = outputs.last_hidden_state.shape[0]
             embeddings = outputs.last_hidden_state[
                 torch.arange(batch_size, device=outputs.last_hidden_state.device),
-                sequence_lengths
+                sequence_lengths,
             ]
 
         # Normalize embeddings
@@ -1227,11 +1236,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
 
         return embeddings.contiguous()
 
-    async def embed(
-        self,
-        texts: List[str],
-        **kwargs
-    ) -> np.ndarray:
+    async def embed(self, texts: List[str], **kwargs) -> np.ndarray:
         """
         Generate embeddings for pure text inputs.
 
@@ -1253,18 +1258,12 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
 
             # Prepare inputs (no images)
             inputs = self._prepare_inputs(
-                texts=texts,
-                images=None,
-                instruction=instruction
+                texts=texts, images=None, instruction=instruction
             )
 
             # Generate embeddings
             loop = asyncio.get_event_loop()
-            embeddings = await loop.run_in_executor(
-                None,
-                self._encode_sync,
-                inputs
-            )
+            embeddings = await loop.run_in_executor(None, self._encode_sync, inputs)
 
             return embeddings
 
@@ -1273,10 +1272,7 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
             raise RuntimeError(f"Text embedding generation failed: {e}") from e
 
     async def embed_multimodal(
-        self,
-        texts: List[str],
-        images: List[Union[str, Image.Image]],
-        **kwargs
+        self, texts: List[str], images: List[Union[str, Image.Image]], **kwargs
     ) -> np.ndarray:
         """
         Generate embeddings for text + image inputs.
@@ -1307,18 +1303,12 @@ class MultimodalEmbeddingProvider(BaseEmbeddingProvider):
 
             # Prepare inputs (with images)
             inputs = self._prepare_inputs(
-                texts=texts,
-                images=images,
-                instruction=instruction
+                texts=texts, images=images, instruction=instruction
             )
 
             # Generate embeddings
             loop = asyncio.get_event_loop()
-            embeddings = await loop.run_in_executor(
-                None,
-                self._encode_sync,
-                inputs
-            )
+            embeddings = await loop.run_in_executor(None, self._encode_sync, inputs)
 
             return embeddings
 
