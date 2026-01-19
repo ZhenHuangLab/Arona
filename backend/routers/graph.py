@@ -3,6 +3,8 @@ Knowledge graph endpoints.
 """
 
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 from fastapi import APIRouter, Request, HTTPException, status, Query
 
@@ -11,6 +13,59 @@ from backend.models.graph import GraphDataResponse, GraphNode, GraphEdge
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+async def _kv_storage_get_all(storage: Any) -> dict[str, Any]:
+    """Best-effort KV storage dump across LightRAG versions.
+
+    LightRAG's KV storage API has evolved. Newer versions expose `get_all()`, while
+    older versions (e.g. early `JsonKVStorage`) only exposed `all_keys()` +
+    `get_by_ids()`.
+    """
+    if storage is None:
+        return {}
+
+    get_all = getattr(storage, "get_all", None)
+    if callable(get_all):
+        try:
+            data = await get_all()
+        except TypeError:
+            data = get_all()
+            if hasattr(data, "__await__"):
+                data = await data
+
+        if isinstance(data, Mapping):
+            return dict(data)
+        return {}
+
+    all_keys = getattr(storage, "all_keys", None)
+    get_by_ids = getattr(storage, "get_by_ids", None)
+    if callable(all_keys) and callable(get_by_ids):
+        keys = await all_keys()
+        if not keys:
+            return {}
+
+        values = await get_by_ids(keys)
+        if values is None:
+            return {}
+
+        try:
+            return {k: v for k, v in zip(keys, values)}
+        except TypeError:
+            return {}
+
+    items = getattr(storage, "items", None)
+    if callable(items):
+        try:
+            return dict(items())
+        except Exception:  # pylint: disable=broad-except
+            return {}
+
+    data_attr = getattr(storage, "_data", None)
+    if isinstance(data_attr, Mapping):
+        return dict(data_attr)
+
+    return {}
 
 
 @router.get("/data", response_model=GraphDataResponse)
@@ -55,7 +110,7 @@ async def get_graph_data(
             entity_names_set = set()
             if rag.lightrag.full_entities:
                 # Get all documents from full_entities storage
-                full_entities_data = await rag.lightrag.full_entities.get_all()
+                full_entities_data = await _kv_storage_get_all(rag.lightrag.full_entities)
 
                 # Extract entity names from each document
                 for doc_id, doc_data in full_entities_data.items():
@@ -96,7 +151,7 @@ async def get_graph_data(
             relation_pairs_set = set()
             if rag.lightrag.full_relations:
                 # Get all documents from full_relations storage
-                full_relations_data = await rag.lightrag.full_relations.get_all()
+                full_relations_data = await _kv_storage_get_all(rag.lightrag.full_relations)
 
                 # Extract relation pairs from each document
                 for doc_id, doc_data in full_relations_data.items():
@@ -185,7 +240,7 @@ async def get_graph_stats(request: Request):
         try:
             # Count unique entities from full_entities storage
             if rag.lightrag.full_entities:
-                full_entities_data = await rag.lightrag.full_entities.get_all()
+                full_entities_data = await _kv_storage_get_all(rag.lightrag.full_entities)
                 entity_names_set = set()
                 for doc_data in full_entities_data.values():
                     if doc_data and "entity_names" in doc_data:
@@ -194,7 +249,7 @@ async def get_graph_stats(request: Request):
 
             # Count unique relations from full_relations storage
             if rag.lightrag.full_relations:
-                full_relations_data = await rag.lightrag.full_relations.get_all()
+                full_relations_data = await _kv_storage_get_all(rag.lightrag.full_relations)
                 relation_pairs_set = set()
                 for doc_data in full_relations_data.values():
                     if doc_data and "relation_pairs" in doc_data:

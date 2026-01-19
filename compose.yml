@@ -1,0 +1,60 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    # Default: enable GPU passthrough for local embedding/reranking models.
+    # Requires NVIDIA Container Toolkit on the host.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Force in-container paths even if host .env contains absolute host paths.
+      WORKING_DIR: /app/rag_storage
+      UPLOAD_DIR: /app/uploads
+      CHAT_DB_PATH: /app/backend/data/chat.db
+      MINERU_TOOLS_CONFIG_JSON: /app/mineru.json
+      # HuggingFace Hub settings (optional)
+      # - In restricted networks (e.g. CN), set HF_ENDPOINT=https://hf-mirror.com
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+      # Force in-container cache paths to avoid accidentally inheriting host absolute paths.
+      HF_HOME: /app/.cache/huggingface
+      HF_HUB_CACHE: /app/.cache/huggingface/hub
+      # Proxy passthrough (optional). Tip: run `proxy_on` before `docker compose up --build`.
+      http_proxy: ${http_proxy:-}
+      https_proxy: ${https_proxy:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      no_proxy: ${no_proxy:-localhost,127.0.0.1}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1}
+      # NVIDIA runtime hints (optional; commonly used by nvidia-container-toolkit setups).
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+    restart: unless-stopped
+    volumes:
+      # Bind-mount host folders so existing uploads + chat DB are visible in Docker.
+      - ./rag_storage:/app/rag_storage
+      - ./uploads:/app/uploads
+      - ./backend/data:/app/backend/data
+      # Persist HuggingFace cache across rebuilds (optional but recommended for local models).
+      # Tip: if you already have a large cache elsewhere, set `HF_HOST_CACHE_DIR` in `.env`:
+      #   HF_HOST_CACHE_DIR=/path/to/.huggingface
+      - ${HF_HOST_CACHE_DIR:-./.cache/huggingface}:/app/.cache/huggingface
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

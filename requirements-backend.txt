@@ -1,17 +1,20 @@
---extra-index-url https://pypi.org/simple
 # Backend API Dependencies
 #
 # Default: local Qwen3-VL embedding/reranking (CUDA 11.8 / cu118).
 # We pin torch/torchvision to the cu118 builds to support Pascal GPUs (e.g. GTX 1080 Ti).
 #
 # pip will need both indexes:
+# - PyPI for the rest:    https://pypi.org/simple
 # - PyTorch cu118 wheels: https://download.pytorch.org/whl/cu118
-# - PyPI for the rest:   https://pypi.org/simple
---index-url https://download.pytorch.org/whl/cu118
+--index-url https://pypi.org/simple
+--extra-index-url https://download.pytorch.org/whl/cu118
 accelerate>=0.25.0
 
 # Async support
 aiofiles>=23.0.0
+
+# LightRAG (module name: `lightrag`)
+lightrag-hku
 
 # FastAPI and server
 fastapi>=0.104.0
@@ -36,6 +39,9 @@ pyyaml>=6.0
 qwen-vl-utils>=0.0.14
 requests>=2.31.0
 safetensors>=0.4.0
+
+# Document parsing (uploads)
+mineru[core]
 
 # Embedding / inference utilities
 sentence-transformers>=2.3.0

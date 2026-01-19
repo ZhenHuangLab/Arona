@@ -1,0 +1,39 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# System deps:
+# - build-essential: compile any wheels that ship as sdist
+# - libgl1/libglib2.0-0: common runtime deps for image/PDF stacks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+      curl \
+      libgl1 \
+      libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip
+
+# Install Python deps first for better Docker layer caching.
+COPY requirements-backend.txt /app/requirements-backend.txt
+RUN pip install --no-cache-dir -r /app/requirements-backend.txt
+
+# Sanity check: ensure MinerU CLI is available for document parsing.
+# (Queries over an existing rag_storage index work without it, but uploads/parsing need it.)
+RUN mineru --version
+
+# Copy only what the backend needs at runtime.
+COPY backend /app/backend
+COPY raganything /app/raganything
+COPY configs /app/configs
+COPY mineru.json /app/mineru.json
+
+# Default runtime paths (override via env if needed).
+RUN mkdir -p /app/rag_storage /app/uploads /app/backend/data
+
+EXPOSE 8000
+
+CMD ["python", "-m", "backend.main", "--host", "0.0.0.0", "--port", "8000"]

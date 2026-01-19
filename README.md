@@ -87,6 +87,20 @@ bash scripts/start_all.sh prod
 
 ---
 
+## Docker Compose（容器一键启动）
+
+```bash
+cp env.example .env
+docker compose up --build
+```
+
+说明：
+- Backend 镜像默认会从 PyPI 安装大多数依赖，并额外从 PyTorch cu118 index 安装 `torch/torchvision`（见 `requirements-backend.txt` 顶部注释）。
+- MinerU CLI 用于文档上传/解析（`PARSER=mineru` 默认开启），Backend 镜像已包含 `mineru[core]` 依赖。
+- 使用 GPU 需要宿主机安装 NVIDIA Container Toolkit。
+
+---
+
 ## 单独启动
 
 只启动后端：

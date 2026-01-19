@@ -1,0 +1,34 @@
+.git
+.github
+.venv
+__pycache__/
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.claude
+.serena
+.mcp.json
+
+# Local env / secrets
+.env
+.env.*
+*.env
+*.env.*
+
+# Frontend build artifacts
+frontend/node_modules
+frontend/dist
+frontend/playwright-report
+frontend/test-results
+
+# Local data (use volumes instead)
+rag_storage*
+uploads
+logs
+backend/data
+
+# Misc large / generated files
+*.log
+*.log.*
+model_*report*.json
+phase_*report*.json
