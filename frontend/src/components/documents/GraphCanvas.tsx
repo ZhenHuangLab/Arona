@@ -1,5 +1,6 @@
 import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
+import type { ForceGraphMethods, LinkObject, NodeObject } from 'react-force-graph-2d';
 import { EmptyState } from '../common/EmptyState';
 import type { GraphNode, GraphEdge } from '@/types/graph';
 
@@ -17,6 +18,10 @@ type ForceGraphLink = GraphEdge & {
   label?: string;
   weight?: number;
 };
+
+type GraphCanvasFGNode = NodeObject<ForceGraphNode>;
+type GraphCanvasFGLink = LinkObject<ForceGraphNode, ForceGraphLink>;
+type GraphCanvasFGMethods = ForceGraphMethods<GraphCanvasFGNode, GraphCanvasFGLink>;
 
 interface GraphCanvasProps {
   nodes: GraphNode[];
@@ -62,6 +67,14 @@ export function GraphCanvas({
 }: GraphCanvasProps) {
   // Tooltip state
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+
+  // ForceGraph2D ref for programmatic control (e.g., zoomToFit)
+  const fgRef = useRef<GraphCanvasFGMethods | undefined>(undefined);
+
+  // Track whether we've done an initial auto-fit (to avoid resetting user zoom on every render)
+  const hasAutoFitRef = useRef(false);
+  // Track last data signature to detect significant data changes
+  const lastDataSigRef = useRef<string>('');
 
   const isDarkRef = useRef(theme === 'dark');
   useEffect(() => {
@@ -173,9 +186,68 @@ export function GraphCanvas({
         name: node.label, // Map label to name for default tooltip
         val: 1, // Constant node size (can be customized later)
       })),
-      links: edges, // Rename edges to links (ForceGraph2D expects 'links')
+      // Clone links to avoid ForceGraph2D mutating upstream state (it rewrites source/target to objects).
+      links: edges.map(edge => ({
+        ...edge,
+        source: typeof edge.source === 'object' ? edge.source.id : edge.source,
+        target: typeof edge.target === 'object' ? edge.target.id : edge.target,
+      })), // Rename edges to links (ForceGraph2D expects 'links')
     };
   }, [nodes, edges]);
+
+  /**
+   * Auto-fit graph when data changes significantly or on initial load.
+   * Uses a data "signature" to detect meaningful changes vs. minor re-renders.
+   * Delays zoomToFit to allow force simulation to stabilize a bit.
+   */
+  useEffect(() => {
+    // Create a signature based on node count and a sample of node IDs
+    const nodeIds = nodes.slice(0, 5).map(n => n.id).join(',');
+    const dataSig = `${nodes.length}:${edges.length}:${nodeIds}`;
+
+    // Skip if data signature hasn't changed significantly
+    if (dataSig === lastDataSigRef.current && hasAutoFitRef.current) {
+      return;
+    }
+
+    // Update the signature
+    lastDataSigRef.current = dataSig;
+
+    // Skip if no nodes
+    if (nodes.length === 0) return;
+
+    // Delay zoomToFit slightly to allow force simulation to position nodes
+    const timer = setTimeout(() => {
+      if (fgRef.current) {
+        fgRef.current.d3ReheatSimulation?.();
+        fgRef.current.zoomToFit(400, 50); // 400ms duration, 50px padding
+        hasAutoFitRef.current = true;
+      }
+    }, 200); // Debounced: allow quick slider changes without feeling "stuck"
+
+    return () => clearTimeout(timer);
+  }, [nodes, edges]);
+
+  /**
+   * Re-center graph when canvas size changes (but don't reset zoom level).
+   * Use the current graph bounding box to avoid drifting the view to (0,0).
+   */
+  useEffect(() => {
+    if (!hasAutoFitRef.current) return; // Don't interfere with initial auto-fit
+    if (nodes.length === 0) return;
+
+    const timer = setTimeout(() => {
+      if (fgRef.current) {
+        const bbox = fgRef.current.getGraphBbox?.();
+        if (!bbox) return;
+        const centerX = (bbox.x[0] + bbox.x[1]) / 2;
+        const centerY = (bbox.y[0] + bbox.y[1]) / 2;
+        fgRef.current.centerAt(centerX, centerY, 300);
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [width, height, nodes.length]);
 
   /**
    * Node drag handlers to prevent graph disappearing
@@ -377,6 +449,7 @@ export function GraphCanvas({
   return (
     <div className="w-full h-full relative">
       <ForceGraph2D
+        ref={fgRef}
         // Type note: react-force-graph-2d's TS types are highly generic and can be difficult
         // to satisfy when nodes/links are mutated at runtime. The runtime data shape is valid.
         graphData={graphData as unknown as any}

@@ -98,13 +98,19 @@ export const ChatView: FC = () => {
   // Draft view: no session selected yet (no session is created until first send).
   if (!sessionId) {
     return (
-      <div className="h-full flex items-center justify-center bg-gradient-to-b from-background to-muted/20">
-        <div className="w-full max-w-3xl px-4">
-          <div className="flex flex-col items-center gap-6">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground">Arona</p>
-              <h2 className="mt-2 text-xl font-semibold tracking-tight">{landingHeadline}</h2>
-            </div>
+      <div className="h-full relative bg-gradient-to-b from-background to-muted/20">
+        {/* Headline (centered above the input) */}
+        <div className="absolute inset-x-0 top-1/2 -translate-y-full -mt-10">
+          <div className="mx-auto w-full max-w-3xl px-4">
+            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-center">
+              {landingHeadline}
+            </h1>
+          </div>
+        </div>
+
+        {/* Input (centered vertically) */}
+        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
+          <div className="mx-auto w-full max-w-3xl px-4">
             <InputBar
               placement="centered"
               onSend={handleStartNewSessionFromDraft}
