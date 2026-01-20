@@ -72,7 +72,7 @@ async def _kv_storage_get_all(storage: Any) -> dict[str, Any]:
 async def get_graph_data(
     request: Request,
     limit: int = Query(
-        default=100, ge=1, le=1000, description="Maximum number of nodes to return"
+        default=100, ge=1, le=5000, description="Maximum number of nodes to return"
     ),
     include_metadata: bool = Query(
         default=False, description="Include detailed metadata"

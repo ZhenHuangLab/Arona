@@ -16,6 +16,17 @@ import type { GraphDataResponse } from '@/types/api';
  * - User-adjustable node limit
  */
 export function useGraph(limit: number = 100) {
+  const retryDelay = (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 15_000);
+
+  const toNumber = (value: unknown): number | undefined => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return undefined;
+  };
+
   // Query: Graph data
   const {
     data: graphData,
@@ -26,6 +37,8 @@ export function useGraph(limit: number = 100) {
     queryKey: ['graph', 'data', limit],
     queryFn: () => getGraphData(limit, false),
     staleTime: 60 * 1000, // 1 minute
+    retry: 10,
+    retryDelay,
   });
 
   // Query: Graph stats
@@ -36,15 +49,24 @@ export function useGraph(limit: number = 100) {
     queryKey: ['graph', 'stats'],
     queryFn: getGraphStats,
     staleTime: 60 * 1000, // 1 minute
+    retry: 10,
+    retryDelay,
   });
 
-  // Extract stats from response and normalize field names
-  // Backend returns: total_nodes, total_edges
-  // Frontend expects: node_count, edge_count
-  const rawStats = graphData?.stats || statsData;
-  const stats = {
-    node_count: rawStats?.total_nodes ?? graphData?.nodes?.length ?? 0,
-    edge_count: rawStats?.total_edges ?? graphData?.edges?.length ?? 0,
+  // Extract stats from response and normalize field names.
+  // Prefer /graph/stats totals (total_entities/total_relations) when available.
+  // Fall back to /graph/data stats (total_nodes/total_edges) or array lengths.
+  const stats: { node_count: number; edge_count: number } = {
+    node_count:
+      toNumber(statsData?.total_entities) ??
+      toNumber(graphData?.stats?.total_nodes) ??
+      graphData?.nodes?.length ??
+      0,
+    edge_count:
+      toNumber(statsData?.total_relations) ??
+      toNumber(graphData?.stats?.total_edges) ??
+      graphData?.edges?.length ??
+      0,
   };
 
   return {

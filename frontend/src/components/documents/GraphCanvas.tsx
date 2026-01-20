@@ -1,15 +1,29 @@
 import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
-import { Network } from 'lucide-react';
 import ForceGraph2D from 'react-force-graph-2d';
-import { Card } from '@/components/ui/card';
 import { EmptyState } from '../common/EmptyState';
 import type { GraphNode, GraphEdge } from '@/types/graph';
+
+type ForceGraphNode = GraphNode & {
+  x?: number;
+  y?: number;
+  fx?: number | null;
+  fy?: number | null;
+  color?: string;
+};
+
+type ForceGraphLink = GraphEdge & {
+  source: string | ForceGraphNode;
+  target: string | ForceGraphNode;
+  label?: string;
+  weight?: number;
+};
 
 interface GraphCanvasProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   width?: number;
   height?: number;
+  theme?: 'light' | 'dark';
   /** Selected node ID for highlighting */
   selectedNodeId?: string | null;
   /** Callback when a node is clicked */
@@ -42,14 +56,17 @@ export function GraphCanvas({
   edges,
   width = 800,
   height = 600,
+  theme = 'light',
   selectedNodeId = null,
   onNodeSelect,
 }: GraphCanvasProps) {
-  // Ref to prevent unnecessary re-renders that cause graph to disappear
-  const fgRef = useRef<any>(null);
-
   // Tooltip state
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+
+  const isDarkRef = useRef(theme === 'dark');
+  useEffect(() => {
+    isDarkRef.current = theme === 'dark';
+  }, [theme]);
 
   // Track global mouse position for tooltips (using ref to avoid recreating callbacks)
   const mousePosRef = useRef({ x: 0, y: 0 });
@@ -164,13 +181,13 @@ export function GraphCanvas({
    * Node drag handlers to prevent graph disappearing
    * Use useCallback to maintain stable function references
    */
-  const handleNodeDrag = useCallback((node: any) => {
+  const handleNodeDrag = useCallback((node: ForceGraphNode) => {
     // Fix node position during drag
     node.fx = node.x;
     node.fy = node.y;
   }, []);
 
-  const handleNodeDragEnd = useCallback((node: any) => {
+  const handleNodeDragEnd = useCallback((node: ForceGraphNode) => {
     // Release node position after drag (allow force simulation to continue)
     node.fx = null;
     node.fy = null;
@@ -183,7 +200,7 @@ export function GraphCanvas({
    * Note: react-force-graph-2d callback signature is (node, previousNode), not (node, event)
    * We use global mouse tracking (mousePosRef) for tooltip positioning
    */
-  const handleNodeHover = useCallback((node: any | null, _previousNode: any) => {
+  const handleNodeHover = useCallback((node: ForceGraphNode | null) => {
     if (node) {
       setTooltip({
         type: 'node',
@@ -208,7 +225,7 @@ export function GraphCanvas({
    * Note: react-force-graph-2d callback signature is (link, previousLink), not (link, event)
    * We use global mouse tracking (mousePosRef) for tooltip positioning
    */
-  const handleLinkHover = useCallback((link: any | null, _previousLink: any) => {
+  const handleLinkHover = useCallback((link: ForceGraphLink | null) => {
     if (link) {
       setTooltip({
         type: 'link',
@@ -230,7 +247,7 @@ export function GraphCanvas({
    * Node click handler for selection
    * Toggle selection: click selected node to deselect, click another to select it
    */
-  const handleNodeClick = useCallback((node: any) => {
+  const handleNodeClick = useCallback((node: ForceGraphNode) => {
     if (onNodeSelect) {
       // Toggle: if clicking the same node, deselect; otherwise select the new node
       onNodeSelect(selectedNodeId === node.id ? null : node.id);
@@ -249,7 +266,7 @@ export function GraphCanvas({
    * 2. Always show labels for selected/highlighted nodes
    * 3. Show all labels when zoomed in (globalScale > 1.2)
    */
-  const paintNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+  const paintNode = useCallback((node: ForceGraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
     // Guard: Skip rendering if node position is not yet initialized
     if (node.x === undefined || node.y === undefined) return;
 
@@ -257,6 +274,7 @@ export function GraphCanvas({
     const currentSelectedId = selectedNodeIdRef.current;
     const currentHighlightNodes = highlightNodesRef.current;
     const currentNodeDegrees = nodeDegreesRef.current;
+    const isDark = isDarkRef.current;
 
     const isSelected = node.id === currentSelectedId;
     const isHighlighted = currentHighlightNodes.has(node.id);
@@ -304,7 +322,10 @@ export function GraphCanvas({
       ctx.font = `${isHighDegreeNode ? 'bold ' : ''}${fontSize}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = isHighDegreeNode ? '#7c3aed' : '#1e293b'; // Purple for super nodes
+      // Use theme-aware label colors for legibility
+      ctx.fillStyle = isHighDegreeNode
+        ? (isDark ? '#a78bfa' : '#7c3aed')
+        : (isDark ? '#e2e8f0' : '#1e293b');
       ctx.globalAlpha = nodeOpacity;
 
       // Truncate label based on zoom level and node importance
@@ -324,7 +345,7 @@ export function GraphCanvas({
    * Custom link color based on selection
    * Uses refs to prevent function recreation
    */
-  const getLinkColor = useCallback((link: any) => {
+  const getLinkColor = useCallback((link: ForceGraphLink) => {
     const linkId = `${typeof link.source === 'object' ? link.source.id : link.source}-${typeof link.target === 'object' ? link.target.id : link.target}`;
     const currentSelectedId = selectedNodeIdRef.current;
     const currentHighlightLinks = highlightLinksRef.current;
@@ -336,120 +357,103 @@ export function GraphCanvas({
     return isHighlighted ? '#8b5cf6' : '#94a3b8'; // Purple for highlighted, gray for normal
   }, []); // ✅ ZERO dependencies
 
+  const getLinkWidth = useCallback((link: ForceGraphLink) => {
+    const linkId = `${typeof link.source === 'object' ? link.source.id : link.source}-${typeof link.target === 'object' ? link.target.id : link.target}`;
+    return highlightLinksRef.current.has(linkId) ? 2.5 : 1.5;
+  }, []); // ✅ ZERO dependencies
+
   // Show empty state when no nodes
   if (nodes.length === 0) {
     return (
-      <Card className="p-8">
+      <div className="p-8">
         <EmptyState
-          icon={Network}
           title="No graph data"
           description="Upload and process documents to see the knowledge graph"
         />
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-2 mb-4">
-        <Network className="h-5 w-5 text-muted-foreground" />
-        <h3 className="text-sm font-semibold">
-          Knowledge Graph ({nodes.length} nodes, {edges.length} edges)
-        </h3>
-      </div>
-      <div className="border rounded-lg bg-background overflow-hidden relative">
-        <ForceGraph2D
-          ref={fgRef}
-          graphData={graphData as any}
-          width={width}
-          height={height}
-          nodeLabel={() => ''} // Disable default tooltip (we use custom)
-          nodeAutoColorBy="type"
-          nodeCanvasObject={paintNode}
-          nodeCanvasObjectMode="replace" // Use constant string instead of arrow function
-          linkLabel={() => ''} // Disable default tooltip (we use custom)
-          linkColor={getLinkColor}
-          linkWidth={useCallback((link: any) => {
-            const linkId = `${typeof link.source === 'object' ? link.source.id : link.source}-${typeof link.target === 'object' ? link.target.id : link.target}`;
-            return highlightLinksRef.current.has(linkId) ? 2.5 : 1.5;
-          }, [])} // ✅ Use ref to prevent recreation
-          linkDirectionalArrowLength={4}
-          linkDirectionalArrowRelPos={0.8}
-          linkDirectionalArrowColor={getLinkColor}
-          enableZoomInteraction={true}
-          enablePanInteraction={true}
-          enableNodeDrag={true}
-          onNodeDrag={handleNodeDrag}
-          onNodeDragEnd={handleNodeDragEnd}
-          onNodeHover={handleNodeHover}
-          onLinkHover={handleLinkHover}
-          onNodeClick={handleNodeClick}
-          backgroundColor="#ffffff"
-          // Performance optimizations for large graphs
-          warmupTicks={100} // Pre-compute layout before rendering (improves initial performance)
-          cooldownTicks={200} // Stop simulation after 200 frames to save CPU
-          cooldownTime={15000} // Or stop after 15 seconds
-          d3AlphaDecay={0.0228} // Default value (controls simulation decay rate)
-          d3VelocityDecay={0.4} // Default value (controls node movement damping)
-        />
+    <div className="w-full h-full relative">
+      <ForceGraph2D
+        // Type note: react-force-graph-2d's TS types are highly generic and can be difficult
+        // to satisfy when nodes/links are mutated at runtime. The runtime data shape is valid.
+        graphData={graphData as unknown as any}
+        width={width}
+        height={height}
+        nodeLabel={() => ''} // Disable default tooltip (we use custom)
+        nodeAutoColorBy="type"
+        nodeCanvasObject={paintNode}
+        nodeCanvasObjectMode="replace" // Use constant string instead of arrow function
+        linkLabel={() => ''} // Disable default tooltip (we use custom)
+        linkColor={getLinkColor}
+        linkWidth={getLinkWidth}
+        linkDirectionalArrowLength={4}
+        linkDirectionalArrowRelPos={0.8}
+        linkDirectionalArrowColor={getLinkColor}
+        enableZoomInteraction={true}
+        enablePanInteraction={true}
+        enableNodeDrag={true}
+        onNodeDrag={handleNodeDrag}
+        onNodeDragEnd={handleNodeDragEnd}
+        onNodeHover={handleNodeHover}
+        onLinkHover={handleLinkHover}
+        onNodeClick={handleNodeClick}
+        backgroundColor={theme === 'dark' ? '#0b0b0d' : '#ffffff'}
+        // Performance optimizations for large graphs
+        warmupTicks={100} // Pre-compute layout before rendering (improves initial performance)
+        cooldownTicks={200} // Stop simulation after 200 frames to save CPU
+        cooldownTime={15000} // Or stop after 15 seconds
+        d3AlphaDecay={0.0228} // Default value (controls simulation decay rate)
+        d3VelocityDecay={0.4} // Default value (controls node movement damping)
+      />
 
-        {/* Custom Tooltip */}
-        {tooltip && (
-          <div
-            className="fixed z-50 pointer-events-none"
-            style={{
-              left: `${tooltip.x + 10}px`,
-              top: `${tooltip.y + 10}px`,
-            }}
-          >
-            <div className="bg-popover text-popover-foreground border rounded-lg shadow-lg p-3 max-w-xs">
-              {tooltip.type === 'node' ? (
-                // Node tooltip
-                <div className="space-y-1">
-                  <p className="font-semibold text-sm">{tooltip.content.label}</p>
-                  {tooltip.content.nodeType && (
-                    <p className="text-xs text-muted-foreground">
-                      Type: <span className="font-medium">{tooltip.content.nodeType}</span>
-                    </p>
-                  )}
-                  {tooltip.content.description && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {tooltip.content.description}
-                    </p>
-                  )}
-                  {tooltip.content.metadata && Object.keys(tooltip.content.metadata).length > 0 && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {Object.keys(tooltip.content.metadata).length} metadata field(s)
-                    </p>
-                  )}
-                </div>
-              ) : (
-                // Link tooltip
-                <div className="space-y-1">
-                  <p className="font-semibold text-sm">{tooltip.content.label}</p>
+      {/* Custom Tooltip */}
+      {tooltip ? (
+        <div
+          className="fixed z-50 pointer-events-none"
+          style={{
+            left: `${tooltip.x + 10}px`,
+            top: `${tooltip.y + 10}px`,
+          }}
+        >
+          <div className="bg-popover text-popover-foreground border rounded-lg shadow-lg p-3 max-w-xs">
+            {tooltip.type === 'node' ? (
+              <div className="space-y-1">
+                <p className="font-semibold text-sm">{tooltip.content.label}</p>
+                {tooltip.content.nodeType ? (
                   <p className="text-xs text-muted-foreground">
-                    {tooltip.content.source} → {tooltip.content.target}
+                    Type: <span className="font-medium">{tooltip.content.nodeType}</span>
                   </p>
-                  {tooltip.content.weight !== undefined && (
-                    <p className="text-xs text-muted-foreground">
-                      Weight: {tooltip.content.weight.toFixed(2)}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
+                ) : null}
+                {tooltip.content.description ? (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {tooltip.content.description}
+                  </p>
+                ) : null}
+                {tooltip.content.metadata && Object.keys(tooltip.content.metadata).length > 0 ? (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {Object.keys(tooltip.content.metadata).length} metadata field(s)
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <p className="font-semibold text-sm">{tooltip.content.label}</p>
+                <p className="text-xs text-muted-foreground">
+                  {tooltip.content.source} → {tooltip.content.target}
+                </p>
+                {tooltip.content.weight !== undefined ? (
+                  <p className="text-xs text-muted-foreground">
+                    Weight: {tooltip.content.weight.toFixed(2)}
+                  </p>
+                ) : null}
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground mt-2">
-        Interactive graph: zoom (scroll), pan (drag), move nodes (drag nodes), hover for details, click to select
-      </p>
-      {selectedNodeId && (
-        <p className="text-xs text-purple-600 mt-1">
-          Selected: {nodes.find(n => n.id === selectedNodeId)?.label || selectedNodeId}
-          {' '}(click again to deselect)
-        </p>
-      )}
-    </Card>
+        </div>
+      ) : null}
+    </div>
   );
 }

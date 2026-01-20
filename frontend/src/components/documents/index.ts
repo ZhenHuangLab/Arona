@@ -5,6 +5,7 @@
  */
 export { FileUploader } from './FileUploader';
 export { DocumentCard } from './DocumentCard';
+export { DocumentListItem } from './DocumentListItem';
 export { IndexStatusBadge } from './IndexStatusBadge';
 export { GraphCanvas } from './GraphCanvas';
 export { GraphControls } from './GraphControls';

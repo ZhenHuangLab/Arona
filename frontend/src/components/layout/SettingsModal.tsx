@@ -31,6 +31,12 @@ type ModelEditorState = {
     temperature: string;
     max_tokens: string;
   };
+  vision: {
+    provider: string;
+    model_name: string;
+    base_url: string;
+    api_key: string;
+  };
   embedding: {
     provider: string;
     model_name: string;
@@ -75,6 +81,12 @@ const DEFAULT_EDITOR_STATE: ModelEditorState = {
     api_key: '',
     temperature: '',
     max_tokens: '',
+  },
+  vision: {
+    provider: 'openai',
+    model_name: '',
+    base_url: '',
+    api_key: '',
   },
   embedding: {
     provider: 'local_gpu',
@@ -176,9 +188,13 @@ export function SettingsModal() {
     onSuccess: (data) => {
       if (data.status === 'success') {
         toast.success('Configuration Reloaded', data.message);
+        refetchHealth();
+        refetchReady();
         refetchConfig();
       } else if (data.status === 'partial') {
         toast.warning('Partial Reload', data.message);
+        refetchHealth();
+        refetchReady();
         refetchConfig();
       } else {
         toast.error('Reload Failed', data.message);
@@ -231,6 +247,14 @@ export function SettingsModal() {
           temperature: configData.models.llm.temperature !== undefined ? String(configData.models.llm.temperature) : '',
           max_tokens: configData.models.llm.max_tokens !== undefined ? String(configData.models.llm.max_tokens) : '',
         },
+        vision: configData.models.vision
+          ? {
+              provider: configData.models.vision.provider || prev.vision.provider,
+              model_name: configData.models.vision.model_name || prev.vision.model_name,
+              base_url: configData.models.vision.base_url ?? '',
+              api_key: '',
+            }
+          : prev.vision,
         embedding: {
           provider: configData.models.embedding.provider || prev.embedding.provider,
           model_name: configData.models.embedding.model_name || prev.embedding.model_name,
@@ -276,7 +300,6 @@ export function SettingsModal() {
 
   const isHealthy = healthData?.status === 'healthy';
   const isReady = readyData?.ready === true;
-  const isLoading = healthLoading || readyLoading || configLoading;
 
   const handleReloadConfig = () => {
     reloadMutation.mutate(undefined);
@@ -313,6 +336,19 @@ export function SettingsModal() {
         return;
       }
       requestBody.llm = llmUpdate;
+    }
+
+    const visionUpdate: NonNullable<ModelsUpdateRequest['vision']> = {};
+    if (editorState.vision.provider !== baseline.vision.provider) visionUpdate.provider = editorState.vision.provider;
+    if (editorState.vision.model_name !== baseline.vision.model_name) visionUpdate.model_name = editorState.vision.model_name;
+    if (editorState.vision.base_url !== baseline.vision.base_url) visionUpdate.base_url = editorState.vision.base_url;
+    if (editorState.vision.api_key.trim()) visionUpdate.api_key = editorState.vision.api_key;
+    if (Object.keys(visionUpdate).length > 0) {
+      if (visionUpdate.model_name !== undefined && !visionUpdate.model_name.trim()) {
+        toast.error('Missing Vision Model', 'Please fill vision model_name');
+        return;
+      }
+      requestBody.vision = visionUpdate;
     }
 
     const embeddingUpdate: NonNullable<ModelsUpdateRequest['embedding']> = {};
@@ -360,7 +396,7 @@ export function SettingsModal() {
       requestBody.reranker = rerankerUpdate;
     }
 
-    if (!requestBody.llm && !requestBody.embedding && !requestBody.reranker) {
+    if (!requestBody.llm && !requestBody.vision && !requestBody.embedding && !requestBody.reranker) {
       toast.info('No Changes', 'No model settings were changed');
       return;
     }
@@ -388,7 +424,7 @@ export function SettingsModal() {
             Settings & Configuration
           </DialogTitle>
           <DialogDescription>
-            Backend health status, configuration details, and hot-reload controls
+            Backend health status, configuration details, and model settings
           </DialogDescription>
         </DialogHeader>
 
@@ -490,7 +526,7 @@ export function SettingsModal() {
                   ) : (
                     <RefreshCw className="h-4 w-4 mr-2" />
                   )}
-                  Hot Reload
+                  Reload Config
                 </Button>
                 {showModelEditor ? (
                   <>
@@ -547,8 +583,11 @@ export function SettingsModal() {
                     <div className="font-mono text-xs">{configData.backend.port}</div>
 
                     <div className="text-muted-foreground">Env File:</div>
-                    <div className="font-mono text-xs truncate" title={configData.backend.env_file_loaded || ''}>
-                      {configData.backend.env_file_loaded || '(unknown)'}
+                    <div
+                      className="font-mono text-xs truncate"
+                      title={configData.backend.env_file_loaded ? configData.backend.env_file_loaded : 'Not loaded from file'}
+                    >
+                      {configData.backend.env_file_loaded ? configData.backend.env_file_loaded : 'Not loaded from file'}
                     </div>
 
                     <div className="text-muted-foreground">CORS Origins:</div>
@@ -862,22 +901,77 @@ export function SettingsModal() {
                 {configData.models.vision && (
                   <div className="rounded-lg border p-3 space-y-2">
                     <h4 className="text-sm font-medium">Vision Model</h4>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="text-muted-foreground">Provider:</div>
-                      <div className="font-mono text-xs">{configData.models.vision.provider}</div>
+                    {showModelEditor ? (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <Label>Provider</Label>
+                          <Select
+                            value={editorState.vision.provider}
+                            onValueChange={(v) =>
+                              setEditorState(s => ({ ...s, vision: { ...s.vision, provider: v } }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select provider" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="openai">openai</SelectItem>
+                              <SelectItem value="azure">azure</SelectItem>
+                              <SelectItem value="custom">custom</SelectItem>
+                              <SelectItem value="local">local</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Model Name</Label>
+                          <Input
+                            value={editorState.vision.model_name}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, vision: { ...s.vision, model_name: e.target.value } }))
+                            }
+                            placeholder="e.g. gpt-4o-mini"
+                          />
+                        </div>
+                        <div className="space-y-2 col-span-2">
+                          <Label>Base URL (optional)</Label>
+                          <Input
+                            value={editorState.vision.base_url}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, vision: { ...s.vision, base_url: e.target.value } }))
+                            }
+                            placeholder="e.g. https://api.openai.com/v1"
+                          />
+                        </div>
+                        <div className="space-y-2 col-span-2">
+                          <Label>API Key (leave blank to keep)</Label>
+                          <Input
+                            type="password"
+                            value={editorState.vision.api_key}
+                            onChange={(e) =>
+                              setEditorState(s => ({ ...s, vision: { ...s.vision, api_key: e.target.value } }))
+                            }
+                            placeholder="sk-..."
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="text-muted-foreground">Provider:</div>
+                        <div className="font-mono text-xs">{configData.models.vision.provider}</div>
 
-                      <div className="text-muted-foreground">Model:</div>
-                      <div className="font-mono text-xs">{configData.models.vision.model_name}</div>
+                        <div className="text-muted-foreground">Model:</div>
+                        <div className="font-mono text-xs">{configData.models.vision.model_name}</div>
 
-                      {configData.models.vision.base_url && (
-                        <>
-                          <div className="text-muted-foreground">Base URL:</div>
-                          <div className="font-mono text-xs truncate" title={configData.models.vision.base_url}>
-                            {configData.models.vision.base_url}
-                          </div>
-                        </>
-                      )}
-                    </div>
+                        {configData.models.vision.base_url && (
+                          <>
+                            <div className="text-muted-foreground">Base URL:</div>
+                            <div className="font-mono text-xs truncate" title={configData.models.vision.base_url}>
+                              {configData.models.vision.base_url}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1586,26 +1680,9 @@ export function SettingsModal() {
               ? 'Reloading configuration...'
               : updateModelsMutation.isPending
                 ? 'Applying model configuration...'
-                : 'Model changes can be applied without restarting the server'}
+                : ''}
           </p>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                refetchHealth();
-                refetchReady();
-                refetchConfig();
-              }}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Refresh All
-            </Button>
             <Button variant="default" size="sm" onClick={() => setOpen(false)}>
               Close
             </Button>

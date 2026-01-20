@@ -14,6 +14,16 @@ import {
 import { cn } from '@/lib/utils';
 
 interface GraphControlsProps {
+  /** Node limit for graph data fetch */
+  nodeLimit: number;
+  /** Minimum node limit for slider */
+  nodeLimitMin: number;
+  /** Maximum node limit for slider */
+  nodeLimitMax: number;
+  /** Step size for slider */
+  nodeLimitStep: number;
+  /** Total nodes available in the graph (for display) */
+  totalNodes: number;
   /** Available node types for filtering */
   nodeTypes: string[];
   /** Currently selected node types */
@@ -28,6 +38,8 @@ interface GraphControlsProps {
   onLayoutChange: (layout: 'normal' | 'tight' | 'loose') => void;
   /** Callback when search query changes */
   onSearchChange: (query: string) => void;
+  /** Callback when node limit changes */
+  onNodeLimitChange: (limit: number) => void;
 }
 
 /**
@@ -44,6 +56,11 @@ interface GraphControlsProps {
  * - Real-time filtering and search
  */
 export function GraphControls({
+  nodeLimit,
+  nodeLimitMin,
+  nodeLimitMax,
+  nodeLimitStep,
+  totalNodes,
   nodeTypes,
   selectedTypes,
   layout,
@@ -51,6 +68,7 @@ export function GraphControls({
   onTypeFilterChange,
   onLayoutChange,
   onSearchChange,
+  onNodeLimitChange,
 }: GraphControlsProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -109,6 +127,32 @@ export function GraphControls({
       {/* Collapsible content */}
       {isExpanded && (
         <div className="space-y-4">
+          {/* Node limit */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="graph-nodes" className="text-sm font-medium">
+                Nodes
+              </Label>
+              <div className="text-xs font-mono text-muted-foreground">
+                {nodeLimit}
+                {totalNodes > 0 ? ` / ${totalNodes}` : null}
+              </div>
+            </div>
+            <input
+              id="graph-nodes"
+              type="range"
+              min={nodeLimitMin}
+              max={nodeLimitMax}
+              step={nodeLimitStep}
+              value={nodeLimit}
+              onChange={(e) => onNodeLimitChange(Number(e.target.value))}
+              className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
+            />
+            <p className="text-xs text-muted-foreground">
+              Adjust how many nodes to load (higher values may impact performance).
+            </p>
+          </div>
+
           {/* Search */}
           <div className="space-y-2">
             <Label htmlFor="graph-search" className="text-sm font-medium">

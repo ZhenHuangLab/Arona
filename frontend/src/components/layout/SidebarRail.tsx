@@ -28,9 +28,9 @@ export function SidebarRail({ onExpand }: SidebarRailProps) {
     'flex h-10 w-10 items-center justify-center rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
   return (
-    <aside className="flex flex-col w-14 border-r bg-background">
+    <aside className="flex flex-col w-full h-full border-r bg-background">
       {/* Top: Expand control */}
-      <div className="p-2 border-b flex items-center justify-center">
+      <div className="h-16 border-b flex items-center justify-center">
         <Button
           type="button"
           variant="ghost"
@@ -45,7 +45,7 @@ export function SidebarRail({ onExpand }: SidebarRailProps) {
       </div>
 
       {/* Primary navigation */}
-      <nav className="flex-1 p-2 flex flex-col items-center gap-1" aria-label="Main navigation">
+      <nav className="flex-1 py-3 flex flex-col items-center gap-1" aria-label="Main navigation">
         <Link
           to="/chat"
           className={cn(

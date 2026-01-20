@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { SidebarRail } from './SidebarRail';
+import { cn } from '@/lib/utils';
 
 /**
  * AppShell Component
@@ -35,11 +36,18 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {isSidebarCollapsed ? (
-        <SidebarRail onExpand={() => setIsSidebarCollapsed(false)} />
-      ) : (
-        <Sidebar onCollapse={() => setIsSidebarCollapsed(true)} />
-      )}
+      <div
+        className={cn(
+          'h-full flex-shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out',
+          isSidebarCollapsed ? 'w-14' : 'w-64'
+        )}
+      >
+        {isSidebarCollapsed ? (
+          <SidebarRail onExpand={() => setIsSidebarCollapsed(false)} />
+        ) : (
+          <Sidebar onCollapse={() => setIsSidebarCollapsed(true)} />
+        )}
+      </div>
       <main
         id="main-content"
         tabIndex={-1}

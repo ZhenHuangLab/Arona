@@ -172,9 +172,9 @@ export function Sidebar({ onCollapse }: SidebarProps) {
   }, [handleLoadMore]);
 
   return (
-    <aside className="flex flex-col w-64 border-r bg-background">
+    <aside className="flex flex-col w-full h-full border-r bg-background">
       {/* Top: Logo/Brand */}
-      <div className="p-4 border-b flex items-center justify-between gap-2">
+      <div className="h-16 px-4 border-b flex items-center justify-between gap-2">
         <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity min-w-0">
           <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center shrink-0">
             <span className="text-primary-foreground font-bold text-lg">A</span>
@@ -200,7 +200,7 @@ export function Sidebar({ onCollapse }: SidebarProps) {
         <Link
           to="/chat"
           className={cn(
-            'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+            'flex h-10 items-center gap-3 px-3 rounded-xl text-sm font-medium transition-colors',
             'hover:bg-accent hover:text-accent-foreground',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             isChatMode
@@ -209,13 +209,13 @@ export function Sidebar({ onCollapse }: SidebarProps) {
           )}
           aria-current={isChatMode ? 'page' : undefined}
         >
-          <MessageSquare className="h-4 w-4" aria-hidden="true" />
+          <MessageSquare className="h-5 w-5" aria-hidden="true" />
           Chat
         </Link>
         <Link
           to="/documents/library"
           className={cn(
-            'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+            'flex h-10 items-center gap-3 px-3 rounded-xl text-sm font-medium transition-colors',
             'hover:bg-purple-100 hover:text-purple-700 dark:hover:bg-purple-950 dark:hover:text-purple-300',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             isDocumentMode
@@ -224,7 +224,7 @@ export function Sidebar({ onCollapse }: SidebarProps) {
           )}
           aria-current={isDocumentMode ? 'page' : undefined}
         >
-          <FileText className="h-4 w-4" aria-hidden="true" />
+          <FileText className="h-5 w-5" aria-hidden="true" />
           Documents
         </Link>
       </nav>

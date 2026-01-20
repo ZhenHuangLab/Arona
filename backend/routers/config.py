@@ -5,13 +5,14 @@ Configuration management endpoints.
 import asyncio
 import logging
 import os
+from dataclasses import asdict
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Request, HTTPException, status
 from dotenv import load_dotenv
 
-from backend.config import BackendConfig
+from backend.config import BackendConfig, ModelConfig
 from backend.services.rag_service import RAGService
 from backend.services.background_indexer import BackgroundIndexer
 from backend.services.model_factory import ModelFactory
@@ -30,6 +31,58 @@ from backend.models.config import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_SOFT_MODEL_EXTRA_KEYS: set[str] = {"allow_image_urls"}
+_SOFT_RERANKER_KEYS: set[str] = {"allow_image_urls"}
+
+
+def _model_config_equivalent_except_extra(
+    old: ModelConfig, new: ModelConfig, *, ignore_extra_keys: set[str]
+) -> bool:
+    """Compare ModelConfig fields while ignoring selected extra_params keys.
+
+    This is used to avoid reloading heavyweight local GPU models when a change can
+    be safely applied in-place (e.g., allow_image_urls).
+    """
+    if old.provider != new.provider:
+        return False
+    if old.model_name != new.model_name:
+        return False
+    if old.model_type != new.model_type:
+        return False
+    if old.api_key != new.api_key:
+        return False
+    if old.base_url != new.base_url:
+        return False
+    if old.embedding_dim != new.embedding_dim:
+        return False
+    if old.max_tokens != new.max_tokens:
+        return False
+    if old.temperature != new.temperature:
+        return False
+
+    old_extra = {k: v for k, v in (old.extra_params or {}).items() if k not in ignore_extra_keys}
+    new_extra = {k: v for k, v in (new.extra_params or {}).items() if k not in ignore_extra_keys}
+    return old_extra == new_extra
+
+
+def _dataclass_equal_except_keys(old: Any, new: Any, *, ignore_keys: set[str]) -> bool:
+    """Best-effort compare for dataclasses while ignoring selected keys."""
+    if old is None or new is None:
+        return False
+
+    try:
+        old_dict = asdict(old)
+        new_dict = asdict(new)
+    except Exception:
+        old_dict = dict(getattr(old, "__dict__", {}) or {})
+        new_dict = dict(getattr(new, "__dict__", {}) or {})
+
+    for key in ignore_keys:
+        old_dict.pop(key, None)
+        new_dict.pop(key, None)
+
+    return old_dict == new_dict
 
 
 async def _stop_background_indexer(state) -> None:
@@ -103,6 +156,47 @@ async def _apply_config(
             # Keep minimal list if dataclass comparison fails.
             pass
 
+    # Some model settings can be safely applied without rebuilding providers.
+    # This avoids double-loading large GPU models during hot-reload.
+    embedding_soft_update = False
+    reranker_soft_update = False
+    if old_config is not None:
+        try:
+            if embedding_changed and _model_config_equivalent_except_extra(
+                old_config.embedding,
+                new_config.embedding,
+                ignore_extra_keys=_SOFT_MODEL_EXTRA_KEYS,
+            ):
+                old_allow = bool(
+                    old_config.embedding.extra_params.get("allow_image_urls", False)
+                )
+                new_allow = bool(
+                    new_config.embedding.extra_params.get("allow_image_urls", False)
+                )
+                embedding_soft_update = old_allow != new_allow
+        except Exception:
+            embedding_soft_update = False
+
+        try:
+            old_reranker = getattr(old_config, "reranker", None)
+            new_reranker = getattr(new_config, "reranker", None)
+            if (
+                reranker_changed
+                and old_reranker is not None
+                and new_reranker is not None
+                and _dataclass_equal_except_keys(
+                    old_reranker, new_reranker, ignore_keys=_SOFT_RERANKER_KEYS
+                )
+            ):
+                old_allow = bool(getattr(old_reranker, "allow_image_urls", False))
+                new_allow = bool(getattr(new_reranker, "allow_image_urls", False))
+                reranker_soft_update = old_allow != new_allow
+        except Exception:
+            reranker_soft_update = False
+
+    embedding_requires_reload = embedding_changed and not embedding_soft_update
+    reranker_requires_reload = reranker_changed and not reranker_soft_update
+
     if llm_changed:
         reloaded_components.append("llm")
     if embedding_changed:
@@ -132,7 +226,7 @@ async def _apply_config(
         old_multimodal_embedding_provider = None
         old_reranker_provider = None
 
-        if embedding_changed:
+        if embedding_requires_reload:
             old_embedding_provider = getattr(
                 old_rag_service, "embedding_provider", None
             )
@@ -147,6 +241,22 @@ async def _apply_config(
             old_rag_service.embedding_func = (
                 ModelFactory.create_embedding_func_from_provider(new_embedding_provider)
             )  # type: ignore[arg-type]
+        elif embedding_soft_update:
+            # Avoid double-loading GPU models for simple flag changes.
+            new_allow = bool(
+                new_config.embedding.extra_params.get("allow_image_urls", False)
+            )
+            embed_provider = getattr(old_rag_service, "embedding_provider", None)
+            if embed_provider is not None and hasattr(embed_provider, "allow_image_urls"):
+                try:
+                    setattr(embed_provider, "allow_image_urls", new_allow)
+                except Exception:
+                    pass
+            if embed_provider is not None and hasattr(embed_provider, "config"):
+                try:
+                    setattr(embed_provider, "config", new_config.embedding)
+                except Exception:
+                    pass
 
         if multimodal_embedding_changed:
             old_multimodal_embedding_provider = getattr(
@@ -181,7 +291,7 @@ async def _apply_config(
                     new_vision_func = ModelFactory.create_vision_func(new_config.vision)  # type: ignore[arg-type]
             old_rag_service.vision_func = new_vision_func  # type: ignore[assignment]
 
-        if reranker_changed:
+        if reranker_requires_reload:
             old_reranker_provider = getattr(old_rag_service, "reranker_provider", None)
             if getattr(new_config, "reranker", None):
                 new_reranker_func = None
@@ -198,6 +308,19 @@ async def _apply_config(
             else:
                 old_rag_service.reranker_func = None
                 old_rag_service.reranker_provider = None
+        elif reranker_soft_update:
+            new_reranker = getattr(new_config, "reranker", None)
+            new_allow = bool(getattr(new_reranker, "allow_image_urls", False))
+            existing_reranker_provider = getattr(
+                old_rag_service, "reranker_provider", None
+            )
+            if existing_reranker_provider is not None and hasattr(
+                existing_reranker_provider, "allow_image_urls"
+            ):
+                try:
+                    setattr(existing_reranker_provider, "allow_image_urls", new_allow)
+                except Exception:
+                    pass
 
         # Decide whether we need to rebuild the cached RAGAnything instance.
         rag_settings_changed = False
@@ -220,8 +343,8 @@ async def _apply_config(
 
         if (
             llm_changed
-            or embedding_changed
-            or reranker_changed
+            or embedding_requires_reload
+            or reranker_requires_reload
             or vision_changed
             or multimodal_embedding_changed
             or rag_settings_changed
@@ -256,7 +379,7 @@ async def _apply_config(
     if old_rag_service is not None:
         try:
             if (
-                embedding_changed
+                embedding_requires_reload
                 and old_embedding_provider is not None
                 and hasattr(old_embedding_provider, "shutdown")
             ):
@@ -268,7 +391,7 @@ async def _apply_config(
             ):
                 await old_multimodal_embedding_provider.shutdown()
             if (
-                reranker_changed
+                reranker_requires_reload
                 and old_reranker_provider is not None
                 and hasattr(old_reranker_provider, "shutdown")
             ):
@@ -817,6 +940,49 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
                     # If comparisons fail, treat as changed so we validate/apply conservatively.
                     pass
 
+            embedding_soft_update = False
+            reranker_soft_update = False
+            if current_config is not None:
+                try:
+                    if embedding_changed and _model_config_equivalent_except_extra(
+                        current_config.embedding,
+                        new_config.embedding,
+                        ignore_extra_keys=_SOFT_MODEL_EXTRA_KEYS,
+                    ):
+                        old_allow = bool(
+                            current_config.embedding.extra_params.get(
+                                "allow_image_urls", False
+                            )
+                        )
+                        new_allow = bool(
+                            new_config.embedding.extra_params.get(
+                                "allow_image_urls", False
+                            )
+                        )
+                        embedding_soft_update = old_allow != new_allow
+                except Exception:
+                    embedding_soft_update = False
+
+                try:
+                    old_reranker = getattr(current_config, "reranker", None)
+                    new_reranker = getattr(new_config, "reranker", None)
+                    if (
+                        reranker_changed
+                        and old_reranker is not None
+                        and new_reranker is not None
+                        and _dataclass_equal_except_keys(
+                            old_reranker, new_reranker, ignore_keys=_SOFT_RERANKER_KEYS
+                        )
+                    ):
+                        old_allow = bool(getattr(old_reranker, "allow_image_urls", False))
+                        new_allow = bool(getattr(new_reranker, "allow_image_urls", False))
+                        reranker_soft_update = old_allow != new_allow
+                except Exception:
+                    reranker_soft_update = False
+
+            embedding_requires_reload = embedding_changed and not embedding_soft_update
+            reranker_requires_reload = reranker_changed and not reranker_soft_update
+
             if not any(
                 [
                     llm_changed,
@@ -847,7 +1013,7 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
             # Build only the providers/functions that actually changed.
             if llm_changed:
                 prebuilt["llm_func"] = ModelFactory.create_llm_func(new_config.llm)
-            if embedding_changed:
+            if embedding_requires_reload:
                 prebuilt["embedding_provider"] = ModelFactory.create_embedding_provider(
                     new_config.embedding
                 )
@@ -863,7 +1029,7 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
                 prebuilt["vision_func"] = ModelFactory.create_vision_func(
                     new_config.vision
                 )  # type: ignore[arg-type]
-            if reranker_changed and getattr(new_config, "reranker", None):
+            if reranker_requires_reload and getattr(new_config, "reranker", None):
                 prebuilt["reranker_func"] = ModelFactory.create_reranker(
                     new_config.reranker
                 )  # type: ignore[arg-type]

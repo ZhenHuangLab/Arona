@@ -1,11 +1,19 @@
-import React, { useState, useMemo } from 'react';
-import { Network, RefreshCw, Settings2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Network, RefreshCw, Sliders } from 'lucide-react';
 import { GraphCanvas, GraphControls } from '@/components/documents';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useGraph } from '@/hooks/useGraph';
 import { LoadingSpinner } from '@/components/common';
+import { useTheme } from '@/components/theme';
 
 /**
  * Graph View
@@ -22,7 +30,8 @@ import { LoadingSpinner } from '@/components/common';
 export const GraphView: React.FC = () => {
   // State for user-adjustable node limit
   const [nodeLimit, setNodeLimit] = useState<number>(100);
-  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const didInitNodeLimitRef = useRef(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
 
   // State for graph controls
   const [layout, setLayout] = useState<'normal' | 'tight' | 'loose'>('normal');
@@ -30,7 +39,15 @@ export const GraphView: React.FC = () => {
   const [selectedNodeTypes, setSelectedNodeTypes] = useState<string[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  const { graphData, stats, isLoading, refetch } = useGraph(nodeLimit);
+  const { graphData, stats, isLoading, error, refetch } = useGraph(nodeLimit);
+  const { actualTheme } = useTheme();
+
+  // Responsive sizing for the graph canvas
+  const graphContainerRef = useRef<HTMLDivElement | null>(null);
+  const [graphSize, setGraphSize] = useState<{ width: number; height: number }>({
+    width: 800,
+    height: 600,
+  });
 
   /**
    * Extract unique node types from graph data
@@ -44,14 +61,71 @@ export const GraphView: React.FC = () => {
     return Array.from(types).sort();
   }, [graphData]);
 
+  const totalNodes = stats?.node_count ?? 0;
+
+  const { nodeLimitMin, nodeLimitMax, nodeLimitStep } = useMemo(() => {
+    const max = totalNodes > 0 ? Math.min(totalNodes, 5000) : 500;
+    const min = totalNodes > 0 ? Math.min(10, max) : 10;
+    const step = max <= 200 ? 1 : max <= 1000 ? 10 : 50;
+    return { nodeLimitMin: min, nodeLimitMax: max, nodeLimitStep: step };
+  }, [totalNodes]);
+
+  const handleNodeLimitChange = useCallback((limit: number) => {
+    didInitNodeLimitRef.current = true;
+    setNodeLimit(limit);
+  }, []);
+
+  // Initialize nodeLimit based on actual graph size (once).
+  useEffect(() => {
+    if (didInitNodeLimitRef.current) return;
+    if (!totalNodes || totalNodes <= 0) return;
+
+    const target =
+      totalNodes <= 200
+        ? totalNodes
+        : Math.min(
+            nodeLimitMax,
+            Math.max(nodeLimitMin, Math.round(totalNodes * 0.25))
+          );
+
+    setNodeLimit(target);
+    didInitNodeLimitRef.current = true;
+  }, [totalNodes, nodeLimitMin, nodeLimitMax]);
+
+  // Keep nodeLimit within the dynamic slider range.
+  useEffect(() => {
+    if (nodeLimit < nodeLimitMin) setNodeLimit(nodeLimitMin);
+    else if (nodeLimit > nodeLimitMax) setNodeLimit(nodeLimitMax);
+  }, [nodeLimit, nodeLimitMin, nodeLimitMax]);
+
   /**
    * Initialize selected types when node types change
    */
-  useMemo(() => {
+  useEffect(() => {
     if (nodeTypes.length > 0 && selectedNodeTypes.length === 0) {
       setSelectedNodeTypes(nodeTypes);
     }
   }, [nodeTypes, selectedNodeTypes.length]);
+
+  useEffect(() => {
+    const el = graphContainerRef.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      const nextWidth = Math.max(320, Math.floor(rect.width));
+      const nextHeight = Math.max(360, Math.floor(rect.height));
+      setGraphSize((prev) =>
+        prev.width === nextWidth && prev.height === nextHeight
+          ? prev
+          : { width: nextWidth, height: nextHeight }
+      );
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   /**
    * Filter graph data based on search query and selected node types
@@ -88,17 +162,6 @@ export const GraphView: React.FC = () => {
       return visibleNodeIds.has(sourceId) && visibleNodeIds.has(targetId);
     });
 
-    // Debug logging (can be removed after verification)
-    console.log('[GraphView] Filtering results:', {
-      totalNodes: graphData.nodes.length,
-      filteredNodes: filteredNodes.length,
-      totalEdges: graphData.edges.length,
-      filteredEdges: filteredEdges.length,
-      sampleEdge: graphData.edges[0],
-      edgeSourceType: typeof graphData.edges[0]?.source,
-      edgeTargetType: typeof graphData.edges[0]?.target,
-    });
-
     return {
       nodes: filteredNodes,
       edges: filteredEdges,
@@ -106,116 +169,115 @@ export const GraphView: React.FC = () => {
     };
   }, [graphData, selectedNodeTypes, searchQuery, nodeTypes.length]);
 
+  const hasAnyNodes = (graphData?.nodes?.length ?? 0) > 0;
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <Card className="p-6 bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-purple-600 rounded-lg">
-              <Network className="h-6 w-6 text-white" />
+    <div className="space-y-4">
+      {/* Title row */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Network className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+          <h2 className="text-lg font-semibold truncate">Graph</h2>
+          {stats ? (
+            <div className="hidden sm:flex items-center gap-2">
+              <Badge variant="secondary" className="text-xs">
+                {String(stats.node_count || 0)} nodes
+              </Badge>
+              <Badge variant="secondary" className="text-xs">
+                {String(stats.edge_count || 0)} edges
+              </Badge>
             </div>
-            <div className="flex-1">
-              <h2 className="text-xl font-bold text-gray-900 mb-2">
-                Knowledge Graph
-              </h2>
-              <p className="text-gray-600 mb-4">
-                Visualize relationships between entities extracted from your documents.
-              </p>
-              {stats && (
-                <div className="flex items-center gap-3">
-                  <Badge variant="secondary" className="text-sm">
-                    {String(stats.node_count || 0)} Nodes
-                  </Badge>
-                  <Badge variant="secondary" className="text-sm">
-                    {String(stats.edge_count || 0)} Edges
-                  </Badge>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowSettings(!showSettings)}
-            >
-              <Settings2 className="h-4 w-4 mr-2" />
-              Settings
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refetch()}
-              disabled={isLoading}
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-          </div>
+          ) : null}
         </div>
-      </Card>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setControlsOpen(true)}
+            className="gap-2"
+            title="Graph controls"
+          >
+            <Sliders className="h-4 w-4" aria-hidden="true" />
+            Controls
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isLoading}
+            className="gap-2"
+            title="Refresh graph data"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+            Refresh
+          </Button>
+        </div>
+      </div>
 
-      {/* Settings Panel */}
-      {showSettings && (
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Graph Settings</h3>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Node Limit: {nodeLimit}
-              </label>
-              <input
-                type="range"
-                min="10"
-                max="2000"
-                step="10"
-                value={nodeLimit}
-                onChange={(e) => setNodeLimit(Number(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>10</span>
-                <span>2000</span>
-              </div>
-              {nodeLimit > 500 && (
-                <p className="text-xs text-amber-600 mt-2">
-                  ⚠️ High node counts may impact performance
-                </p>
-              )}
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {/* Graph Controls */}
-      {!isLoading && graphData && graphData.nodes.length > 0 && (
-        <GraphControls
-          nodeTypes={nodeTypes}
-          selectedTypes={selectedNodeTypes}
-          layout={layout}
-          searchQuery={searchQuery}
-          onTypeFilterChange={setSelectedNodeTypes}
-          onLayoutChange={setLayout}
-          onSearchChange={setSearchQuery}
-        />
-      )}
+      {/* Advanced controls dialog (collapsed behind a single button) */}
+      <Dialog open={controlsOpen} onOpenChange={setControlsOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Graph controls</DialogTitle>
+            <DialogDescription>
+              Search, layout, and filters for the knowledge graph.
+            </DialogDescription>
+          </DialogHeader>
+          <GraphControls
+            nodeLimit={nodeLimit}
+            nodeLimitMin={nodeLimitMin}
+            nodeLimitMax={nodeLimitMax}
+            nodeLimitStep={nodeLimitStep}
+            totalNodes={totalNodes}
+            nodeTypes={nodeTypes}
+            selectedTypes={selectedNodeTypes}
+            layout={layout}
+            searchQuery={searchQuery}
+            onTypeFilterChange={setSelectedNodeTypes}
+            onLayoutChange={setLayout}
+            onSearchChange={setSearchQuery}
+            onNodeLimitChange={handleNodeLimitChange}
+          />
+        </DialogContent>
+      </Dialog>
 
       {/* Graph Visualization */}
       {isLoading ? (
         <Card className="p-12">
           <LoadingSpinner size="lg" text="Loading graph data..." />
         </Card>
+      ) : error ? (
+        <Card className="p-12">
+          <div className="text-center text-muted-foreground space-y-2">
+            <Network className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p className="text-lg font-medium">Failed to load graph</p>
+            <p className="text-sm">{String((error as Error)?.message || error)}</p>
+            <div className="pt-2">
+              <Button variant="outline" onClick={() => refetch()} className="gap-2">
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                Retry
+              </Button>
+            </div>
+          </div>
+        </Card>
       ) : filteredGraphData && filteredGraphData.nodes.length > 0 ? (
-        <GraphCanvas
-          nodes={filteredGraphData.nodes}
-          edges={filteredGraphData.edges}
-          width={800}
-          height={600}
-          selectedNodeId={selectedNodeId}
-          onNodeSelect={setSelectedNodeId}
-        />
-      ) : (
+        <Card className="p-0 overflow-hidden">
+          <div
+            ref={graphContainerRef}
+            className="w-full h-[60vh] min-h-[480px] flex items-center justify-center"
+          >
+            <GraphCanvas
+              nodes={filteredGraphData.nodes}
+              edges={filteredGraphData.edges}
+              width={graphSize.width}
+              height={graphSize.height}
+              selectedNodeId={selectedNodeId}
+              onNodeSelect={setSelectedNodeId}
+              theme={actualTheme}
+            />
+          </div>
+        </Card>
+      ) : hasAnyNodes ? (
         <Card className="p-12">
           <div className="text-center text-muted-foreground">
             <Network className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -223,43 +285,25 @@ export const GraphView: React.FC = () => {
             <p className="text-sm mt-2">Try adjusting your search or type filters</p>
           </div>
         </Card>
-      )}
-
-      {/* Graph Info */}
-      {filteredGraphData && filteredGraphData.nodes.length > 0 && (
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-3">Graph Information</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="text-gray-600">Visible Nodes</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {filteredGraphData.nodes.length}
-              </p>
-              {graphData && filteredGraphData.nodes.length < graphData.nodes.length && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  of {graphData.nodes.length} total
+      ) : (
+        <Card className="p-12">
+          <div className="text-center text-muted-foreground">
+            <Network className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            {totalNodes > 0 ? (
+              <>
+                <p className="text-lg font-medium">Preparing graph…</p>
+                <p className="text-sm mt-2">
+                  Found {totalNodes} nodes in stats. Retrying data load automatically…
                 </p>
-              )}
-            </div>
-            <div>
-              <p className="text-gray-600">Visible Edges</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {filteredGraphData.edges.length}
-              </p>
-              {graphData && filteredGraphData.edges.length < graphData.edges.length && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  of {graphData.edges.length} total
+              </>
+            ) : (
+              <>
+                <p className="text-lg font-medium">No graph data yet</p>
+                <p className="text-sm mt-2">
+                  Upload and process documents to populate the knowledge graph.
                 </p>
-              )}
-            </div>
-            <div>
-              <p className="text-gray-600">Avg. Connections</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {filteredGraphData.nodes.length > 0
-                  ? (filteredGraphData.edges.length / filteredGraphData.nodes.length).toFixed(1)
-                  : '0'}
-              </p>
-            </div>
+              </>
+            )}
           </div>
         </Card>
       )}

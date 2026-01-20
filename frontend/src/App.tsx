@@ -7,7 +7,6 @@ import { LoadingSpinner } from './components/common/LoadingSpinner';
 // Lazy load views for code splitting and better performance
 const ChatView = lazy(() => import('./views/ChatView').then(m => ({ default: m.ChatView })));
 const DocumentView = lazy(() => import('./views/DocumentView').then(m => ({ default: m.DocumentView })));
-const UploadView = lazy(() => import('./views/UploadView').then(m => ({ default: m.UploadView })));
 const GraphView = lazy(() => import('./views/GraphView').then(m => ({ default: m.GraphView })));
 const LibraryView = lazy(() => import('./views/LibraryView').then(m => ({ default: m.LibraryView })));
 const NotFound = lazy(() => import('./views/NotFound').then(m => ({ default: m.NotFound })));
@@ -56,8 +55,8 @@ function App() {
               <Route path="chat" element={<ChatView />} />
               <Route path="chat/:sessionId" element={<ChatView />} />
               <Route path="documents" element={<DocumentView />}>
-                <Route index element={<Navigate to="upload" replace />} />
-                <Route path="upload" element={<UploadView />} />
+                <Route index element={<Navigate to="library" replace />} />
+                <Route path="upload" element={<Navigate to="library" replace />} />
                 <Route path="graph" element={<GraphView />} />
                 <Route path="library" element={<LibraryView />} />
               </Route>

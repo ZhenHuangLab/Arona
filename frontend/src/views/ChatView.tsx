@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type FC } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { MessageSquare, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { ChatBox, InputBar } from '@/components/chat';
 import { useChat, useChatSession, useCreateSession } from '@/hooks';
 
@@ -40,6 +40,20 @@ export const ChatView: FC = () => {
 
   // Create session mutation
   const createSessionMutation = useCreateSession();
+
+  const landingHeadline = useMemo(() => {
+    const lines = [
+      'How can I help you today?',
+      'Ask me anything.',
+      'What are we building?',
+      'Drop a question, and we’ll take it from there.',
+      'Let’s solve something together.',
+      'Need a second brain?',
+      'What’s on your mind?',
+      'Let’s make progress — one message at a time.',
+    ];
+    return lines[Math.floor(Math.random() * lines.length)];
+  }, []);
 
   const handleSendMessage = useCallback((message: string, imageFile?: File | null) => {
     // Backend currently enforces hybrid mode; keep UI simple and consistent.
@@ -87,7 +101,10 @@ export const ChatView: FC = () => {
       <div className="h-full flex items-center justify-center bg-gradient-to-b from-background to-muted/20">
         <div className="w-full max-w-3xl px-4">
           <div className="flex flex-col items-center gap-6">
-            <MessageSquare className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">Arona</p>
+              <h2 className="mt-2 text-xl font-semibold tracking-tight">{landingHeadline}</h2>
+            </div>
             <InputBar
               placement="centered"
               onSend={handleStartNewSessionFromDraft}
