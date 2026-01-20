@@ -54,7 +54,7 @@ sentence-transformers>=2.3.0
 #
 # PyTorch (cu118)
 torch==2.7.1+cu118
-torchvision==0.22.1+cu118
+torchvision==0.24.1
 
 # Transformers and Qwen3-VL
 transformers>=4.57.0
