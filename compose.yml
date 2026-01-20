@@ -44,6 +44,10 @@ services:
       - ./rag_storage:/app/rag_storage
       - ./uploads:/app/uploads
       - ./backend/data:/app/backend/data
+      # Keep MinerU config editable without rebuilding the image.
+      - ./mineru.json:/app/mineru.json:ro
+      # MinerU local models cache (host -> container).
+      - /eml5/zhuang/.cache/models:/app/.cache/models:ro
       # Persist HuggingFace cache across rebuilds (optional but recommended for local models).
       # Tip: if you already have a large cache elsewhere, set `HF_HOST_CACHE_DIR` in `.env`:
       #   HF_HOST_CACHE_DIR=/path/to/.huggingface

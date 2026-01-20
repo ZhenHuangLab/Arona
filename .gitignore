@@ -52,6 +52,9 @@ rag_storage*/
 examples/input/
 examples/output/
 output*/
+uploads/
+backend/data/
+mineru.json
 
 # Miscellaneous
 .DS_Store

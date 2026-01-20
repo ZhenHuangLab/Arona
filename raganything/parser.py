@@ -861,9 +861,41 @@ class MineruParser(Parser):
 
         file_stem_subdir = output_dir / file_stem
         if file_stem_subdir.exists():
-            md_file = file_stem_subdir / method / f"{file_stem}.md"
-            json_file = file_stem_subdir / method / f"{file_stem}_content_list.json"
-            images_base_dir = file_stem_subdir / method
+            # MinerU may write into a method-named subfolder under <output_dir>/<file_stem>/.
+            #
+            # In newer MinerU versions, `-m auto` can produce `hybrid_auto/` instead of `auto/`.
+            # Fall back to that layout to keep `parse_method=auto` working.
+            method_dirs_to_try = [method]
+            if method == "auto":
+                method_dirs_to_try.append("hybrid_auto")
+
+            selected_dir: Path | None = None
+            for method_dir_name in method_dirs_to_try:
+                candidate_dir = file_stem_subdir / method_dir_name
+                candidate_md = candidate_dir / f"{file_stem}.md"
+                candidate_json = candidate_dir / f"{file_stem}_content_list.json"
+                candidate_json_v2 = (
+                    candidate_dir / f"{file_stem}_content_list_v2.json"
+                )
+
+                if candidate_md.exists() or candidate_json.exists() or candidate_json_v2.exists():
+                    selected_dir = candidate_dir
+                    md_file = candidate_md
+                    # Prefer legacy name, but fall back to v2 if that's the only one present.
+                    json_file = (
+                        candidate_json
+                        if candidate_json.exists()
+                        else candidate_json_v2
+                    )
+                    images_base_dir = candidate_dir
+                    break
+
+            # If we couldn't locate any output files, keep the original method-based defaults
+            # so error messages are still meaningful.
+            if selected_dir is None:
+                md_file = file_stem_subdir / method / f"{file_stem}.md"
+                json_file = file_stem_subdir / method / f"{file_stem}_content_list.json"
+                images_base_dir = file_stem_subdir / method
 
         # Read markdown content
         md_content = ""
