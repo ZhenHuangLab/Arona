@@ -567,11 +567,12 @@ async def create_turn(
                     query=query,
                     multimodal_content=[{"type": "image", "img_path": img_path}],
                     mode=mode,
+                    bypass_cache=True,
                     **kwargs,
                 )
             else:
                 assistant_content = await rag_service.query(
-                    query=query, mode=mode, **kwargs
+                    query=query, mode=mode, bypass_cache=True, **kwargs
                 )
             llm_error = None
         except Exception as exc:  # noqa: BLE001
@@ -843,6 +844,7 @@ async def create_turn_stream(
                     query=query,
                     multimodal_content=[{"type": "image", "img_path": img_path}],
                     mode=mode,
+                    bypass_cache=True,
                     **kwargs,
                 )
                 if isinstance(assistant_content, str) and assistant_content:
@@ -854,14 +856,14 @@ async def create_turn_stream(
                 # Prefer a dedicated streaming API if present; otherwise try lightrag stream=True.
                 if hasattr(rag_service, "query_stream"):
                     stream_iter = rag_service.query_stream(
-                        query=query, mode=mode, **kwargs
+                        query=query, mode=mode, bypass_cache=True, **kwargs
                     )
                 else:
                     stream_iter = None
 
                 if stream_iter is None:
                     assistant_content = await rag_service.query(
-                        query=query, mode=mode, **kwargs
+                        query=query, mode=mode, bypass_cache=True, **kwargs
                     )
                     if isinstance(assistant_content, str) and assistant_content:
                         assistant_parts.append(assistant_content)
@@ -1125,10 +1127,13 @@ async def retry_assistant_message(
                 query=query,
                 multimodal_content=[{"type": "image", "img_path": img_path}],
                 mode=mode,
+                bypass_cache=True,
                 **kwargs,
             )
         else:
-            assistant_content = await rag_service.query(query=query, mode=mode, **kwargs)
+            assistant_content = await rag_service.query(
+                query=query, mode=mode, bypass_cache=True, **kwargs
+            )
     except Exception as exc:  # noqa: BLE001
         logger.error("RAG service retry failed: %s", exc, exc_info=True)
         raise HTTPException(

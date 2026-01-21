@@ -38,6 +38,7 @@ class RAGService:
         self.config = config
         self._rag_instance: Optional[RAGAnything] = None
         self._lock = asyncio.Lock()
+        self._llm_cache_lock = asyncio.Lock()
         self._active_ops_lock = asyncio.Lock()
         self._idle_event = asyncio.Event()
         self._idle_event.set()
@@ -161,6 +162,37 @@ class RAGService:
 
             return self._rag_instance
 
+    @asynccontextmanager
+    async def _llm_cache_disabled(self, rag: RAGAnything):
+        """
+        Temporarily disable LightRAG LLM response cache for a single operation.
+
+        This avoids stale/deterministic results (e.g. retry/regenerate should not
+        return a cached response).
+        """
+        lightrag = getattr(rag, "lightrag", None)
+        llm_cache = getattr(lightrag, "llm_response_cache", None)
+        global_config = getattr(llm_cache, "global_config", None)
+
+        if not isinstance(global_config, dict):
+            yield
+            return
+
+        async with self._llm_cache_lock:
+            prev_enable_llm_cache = global_config.get("enable_llm_cache", True)
+            prev_enable_extract_cache = global_config.get(
+                "enable_llm_cache_for_entity_extract", True
+            )
+            global_config["enable_llm_cache"] = False
+            global_config["enable_llm_cache_for_entity_extract"] = False
+            try:
+                yield
+            finally:
+                global_config["enable_llm_cache"] = prev_enable_llm_cache
+                global_config["enable_llm_cache_for_entity_extract"] = (
+                    prev_enable_extract_cache
+                )
+
     async def process_document(
         self,
         file_path: str | Path,
@@ -227,11 +259,16 @@ class RAGService:
         """
         async with self._operation():
             rag = await self.get_rag_instance()
+            bypass_cache = bool(kwargs.pop("bypass_cache", False))
 
             logger.info(f"Executing query: {query[:100]}... (mode={mode})")
 
             try:
-                result = await rag.aquery(query, mode=mode, **kwargs)
+                if bypass_cache:
+                    async with self._llm_cache_disabled(rag):
+                        result = await rag.aquery(query, mode=mode, **kwargs)
+                else:
+                    result = await rag.aquery(query, mode=mode, **kwargs)
                 logger.info("Query executed successfully")
                 return result
             except Exception as e:
@@ -252,12 +289,17 @@ class RAGService:
         """
         async with self._operation():
             rag = await self.get_rag_instance()
+            bypass_cache = bool(kwargs.pop("bypass_cache", False))
 
             logger.info(f"Executing streaming query: {query[:100]}... (mode={mode})")
 
             # RAGAnything wraps LightRAG. LightRAG supports stream=True by returning
             # an AsyncIterator[str]. Some providers may only yield once.
-            result = await rag.aquery(query, mode=mode, stream=True, **kwargs)
+            if bypass_cache:
+                async with self._llm_cache_disabled(rag):
+                    result = await rag.aquery(query, mode=mode, stream=True, **kwargs)
+            else:
+                result = await rag.aquery(query, mode=mode, stream=True, **kwargs)
 
             if isinstance(result, str):
                 yield result
@@ -287,16 +329,26 @@ class RAGService:
         """
         async with self._operation():
             rag = await self.get_rag_instance()
+            bypass_cache = bool(kwargs.pop("bypass_cache", False))
 
             logger.info(f"Executing multimodal query: {query[:100]}... (mode={mode})")
 
             try:
-                result = await rag.aquery_with_multimodal(
-                    query=query,
-                    multimodal_content=multimodal_content,
-                    mode=mode,
-                    **kwargs,
-                )
+                if bypass_cache:
+                    async with self._llm_cache_disabled(rag):
+                        result = await rag.aquery_with_multimodal(
+                            query=query,
+                            multimodal_content=multimodal_content,
+                            mode=mode,
+                            **kwargs,
+                        )
+                else:
+                    result = await rag.aquery_with_multimodal(
+                        query=query,
+                        multimodal_content=multimodal_content,
+                        mode=mode,
+                        **kwargs,
+                    )
                 logger.info("Multimodal query executed successfully")
                 return result
             except Exception as e:
