@@ -290,6 +290,125 @@ test.describe('Chat Interface', () => {
     await expect(messageInput).toHaveValue('');
   });
 
+  test('copies user and assistant messages', async ({ page }) => {
+    const sessionId = uuidv4();
+    const assistantText = 'This is a copy test response from the assistant.';
+
+    await page.addInitScript(() => {
+      // Capture clipboard writes in a test-friendly way.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__copiedText = null;
+
+      const clipboard = {
+        writeText: async (text: string) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (window as any).__copiedText = text;
+        },
+      };
+
+      Object.defineProperty(navigator, 'clipboard', {
+        value: clipboard,
+        configurable: true,
+      });
+    });
+
+    // Mock session detail
+    await page.route(`**/api/chat/sessions/${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: sessionId,
+          title: 'Test Session',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
+        }),
+      });
+    });
+
+    // Mock messages list (empty initially)
+    await page.route(`**/api/chat/sessions/${sessionId}/messages*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [],
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    });
+
+    // Mock streaming turn API (SSE)
+    await page.route(`**/api/chat/sessions/${sessionId}/turn:stream`, async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      const userMessageId = uuidv4();
+      const assistantMessageId = uuidv4();
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          `data: ${JSON.stringify({ type: 'delta', delta: assistantText })}`,
+          '',
+          `data: ${JSON.stringify({
+            type: 'final',
+            response: {
+              turn_id: body.request_id,
+              status: 'completed',
+              user_message: {
+                id: userMessageId,
+                session_id: sessionId,
+                role: 'user',
+                content: body.query,
+                created_at: new Date().toISOString(),
+                metadata: { mode: 'hybrid' },
+              },
+              assistant_message: {
+                id: assistantMessageId,
+                session_id: sessionId,
+                role: 'assistant',
+                content: assistantText,
+                created_at: new Date().toISOString(),
+                metadata: {},
+              },
+              error: null,
+            },
+          })}`,
+          '',
+        ].join('\n\n'),
+      });
+    });
+
+    await page.goto(`/chat/${sessionId}`);
+
+    const messageInput = page.getByPlaceholder('Ask anything...');
+    const sendButton = page.getByRole('button', { name: /send message/i });
+
+    await messageInput.fill('Hello, assistant!');
+    await sendButton.click();
+
+    await expect(page.getByText('Hello, assistant!')).toBeVisible();
+    await expect(page.getByText(assistantText)).toBeVisible();
+
+    const assistantCopyButton = page.getByRole('button', { name: 'Copy assistant message' });
+    await expect(assistantCopyButton).toBeVisible();
+
+    await assistantCopyButton.click();
+    await expect.poll(() => page.evaluate(() => (window as never as { __copiedText: string | null }).__copiedText))
+      .toBe(assistantText);
+
+    await page.getByText('Hello, assistant!').hover();
+    const userCopyButton = page.getByRole('button', { name: 'Copy user message' });
+    await expect(userCopyButton).toBeVisible();
+
+    await userCopyButton.click();
+    await expect.poll(() => page.evaluate(() => (window as never as { __copiedText: string | null }).__copiedText))
+      .toBe('Hello, assistant!');
+  });
+
   test('sends message using Enter key', async ({ page }) => {
     const sessionId = uuidv4();
 

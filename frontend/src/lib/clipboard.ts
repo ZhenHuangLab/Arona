@@ -11,6 +11,8 @@ import { toast } from './toast';
  *
  * @param text - Text to copy to clipboard
  * @param successMessage - Optional custom success message (default: "Copied to clipboard")
+ * @param description - Optional toast description. Defaults to showing the copied text.
+ *   Pass `null` to suppress the description (useful for large payloads).
  * @returns Promise<boolean> - true if successful, false otherwise
  *
  * @example
@@ -22,7 +24,8 @@ import { toast } from './toast';
  */
 export async function copyToClipboard(
   text: string,
-  successMessage: string = 'Copied to clipboard'
+  successMessage: string = 'Copied to clipboard',
+  description?: string | null
 ): Promise<boolean> {
   // Validate input
   if (!text || typeof text !== 'string') {
@@ -30,11 +33,13 @@ export async function copyToClipboard(
     return false;
   }
 
+  const toastDescription = description === undefined ? text : description ?? undefined;
+
   try {
     // Modern Clipboard API (preferred)
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
-      toast.success(successMessage, text);
+      toast.success(successMessage, toastDescription);
       return true;
     }
 
@@ -52,7 +57,7 @@ export async function copyToClipboard(
     document.body.removeChild(textArea);
 
     if (successful) {
-      toast.success(successMessage, text);
+      toast.success(successMessage, toastDescription);
       return true;
     } else {
       throw new Error('execCommand failed');
