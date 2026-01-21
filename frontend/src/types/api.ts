@@ -309,8 +309,8 @@ export interface GraphNode {
  * The union type accurately represents both states for type safety.
  */
 export interface GraphEdge {
-  source: string | { id: string; [key: string]: any };
-  target: string | { id: string; [key: string]: any };
+  source: string | { id: string; [key: string]: unknown };
+  target: string | { id: string; [key: string]: unknown };
   label: string;
   weight?: number;
   metadata?: Record<string, unknown>;

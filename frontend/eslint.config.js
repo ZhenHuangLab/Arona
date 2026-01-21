@@ -15,6 +15,16 @@ export default defineConfig([
       reactHooks.configs['recommended-latest'],
       reactRefresh.configs.vite,
     ],
+    rules: {
+      // Vite React Refresh rule is useful, but our codebase intentionally exports a few
+      // non-component helpers alongside components (e.g. shadcn `*Variants`, theme hook).
+      'react-refresh/only-export-components': [
+        'error',
+        {
+          allowExportNames: ['useTheme', 'badgeVariants', 'buttonVariants'],
+        },
+      ],
+    },
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,

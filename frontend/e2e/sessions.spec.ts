@@ -289,8 +289,8 @@ test.describe('Session Management', () => {
     // Should navigate to documents library
     await expect(page).toHaveURL(/\/documents\/library/);
 
-    // Should show Document Library content
-    await expect(page.getByText(/document library/i)).toBeVisible({ timeout: 5000 });
+    // Should show Library view content
+    await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible({ timeout: 5000 });
   });
 });
 

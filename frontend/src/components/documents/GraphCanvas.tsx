@@ -1,6 +1,6 @@
 import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
-import type { ForceGraphMethods, LinkObject, NodeObject } from 'react-force-graph-2d';
+import type { ForceGraphMethods, GraphData, LinkObject, NodeObject } from 'react-force-graph-2d';
 import { EmptyState } from '../common/EmptyState';
 import type { GraphNode, GraphEdge } from '@/types/graph';
 
@@ -19,9 +19,12 @@ type ForceGraphLink = GraphEdge & {
   weight?: number;
 };
 
+// react-force-graph-2d's TS typings wrap node/link data in NodeObject/LinkObject.
+// Use the wrapped types to keep `tsc -b` happy without resorting to `any`.
 type GraphCanvasFGNode = NodeObject<ForceGraphNode>;
 type GraphCanvasFGLink = LinkObject<ForceGraphNode, ForceGraphLink>;
 type GraphCanvasFGMethods = ForceGraphMethods<GraphCanvasFGNode, GraphCanvasFGLink>;
+type GraphCanvasGraphData = GraphData<GraphCanvasFGNode, GraphCanvasFGLink>;
 
 interface GraphCanvasProps {
   nodes: GraphNode[];
@@ -179,7 +182,7 @@ export function GraphCanvas({
    * - val: constant value for node size
    * - Keep all existing properties for custom tooltips
    */
-  const graphData = useMemo(() => {
+  const graphData = useMemo<GraphCanvasGraphData>(() => {
     return {
       nodes: nodes.map(node => ({
         ...node,
@@ -450,9 +453,7 @@ export function GraphCanvas({
     <div className="w-full h-full relative">
       <ForceGraph2D
         ref={fgRef}
-        // Type note: react-force-graph-2d's TS types are highly generic and can be difficult
-        // to satisfy when nodes/links are mutated at runtime. The runtime data shape is valid.
-        graphData={graphData as unknown as any}
+        graphData={graphData}
         width={width}
         height={height}
         nodeLabel={() => ''} // Disable default tooltip (we use custom)

@@ -95,13 +95,17 @@ test.describe('Documents', () => {
 
     await page.locator('aside').getByRole('link', { name: 'Documents' }).click();
     await expect(page).toHaveURL(/\/documents\/library/);
-    await expect(page.getByText('Document Library')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   });
 
   test('shows upload UI', async ({ page }) => {
     await mockDocumentDetails(page, []);
-    await page.goto('/documents/upload');
-    await expect(page.getByText('Upload Documents')).toBeVisible();
+    // Upload is integrated into the Library page via a dialog.
+    await page.goto('/documents/library');
+    await page.getByRole('button', { name: 'Upload', exact: true }).click();
+
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /upload documents/i })).toBeVisible();
     await expect(page.getByText('Drop files here or click to browse')).toBeVisible();
     // The uploader uses a <label> styled as a button (via Button asChild)
     await expect(page.getByText('Select Files')).toBeVisible();

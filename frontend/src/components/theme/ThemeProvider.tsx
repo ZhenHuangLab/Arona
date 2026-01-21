@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useSettingsStore } from '@/store';
 
 type Theme = 'light' | 'dark' | 'system';
@@ -39,19 +39,30 @@ export function ThemeProvider({ children, defaultTheme = 'system' }: ThemeProvid
     }
   }, [theme, defaultTheme, setTheme]);
 
-  // Determine actual theme (resolve 'system' to 'light' or 'dark')
-  const getActualTheme = (): 'light' | 'dark' => {
-    if (theme === 'system') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-    return theme;
-  };
+  // Track system theme preference; only used when `theme === 'system'`.
+  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(() =>
+    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  );
+
+  // Listen to system theme changes (kept always-on; cheap and avoids conditional deps).
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+    const handleChange = (e: MediaQueryListEvent) => {
+      setSystemTheme(e.matches ? 'dark' : 'light');
+    };
+
+    mediaQuery.addEventListener('change', handleChange);
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange);
+    };
+  }, []);
+
+  const actualTheme: 'light' | 'dark' = theme === 'system' ? systemTheme : theme;
 
   // Apply theme to document root
   useEffect(() => {
     const root = window.document.documentElement;
-    const actualTheme = getActualTheme();
-
     root.classList.remove('light', 'dark');
     root.classList.add(actualTheme);
 
@@ -60,34 +71,13 @@ export function ThemeProvider({ children, defaultTheme = 'system' }: ThemeProvid
     if (metaThemeColor) {
       metaThemeColor.setAttribute('content', actualTheme === 'dark' ? '#222222' : '#ffffff');
     }
-  }, [theme]);
-
-  // Listen to system theme changes when theme is 'system'
-  useEffect(() => {
-    if (theme !== 'system') return;
-
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-
-    const handleChange = () => {
-      const root = window.document.documentElement;
-      const actualTheme = getActualTheme();
-      root.classList.remove('light', 'dark');
-      root.classList.add(actualTheme);
-    };
-
-    // Modern browsers
-    mediaQuery.addEventListener('change', handleChange);
-
-    return () => {
-      mediaQuery.removeEventListener('change', handleChange);
-    };
-  }, [theme]);
+  }, [actualTheme]);
 
   const value: ThemeProviderContextValue = {
     theme,
     setTheme,
     toggleTheme,
-    actualTheme: getActualTheme(),
+    actualTheme,
   };
 
   return (
