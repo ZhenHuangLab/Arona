@@ -38,7 +38,7 @@ from backend.services.rag_service import RAGService
 from backend.services.index_status_service import IndexStatusService
 from backend.services.background_indexer import BackgroundIndexer
 from backend.utils.torch_runtime import ensure_torch_cuda_libs
-from backend.routers import documents, query, health, graph, config, chat
+from backend.routers import documents, query, health, graph, config, chat, files
 from backend.services.chat_store import ChatStore
 
 
@@ -158,6 +158,7 @@ app.include_router(query.router, prefix="/api/query", tags=["Query"])
 app.include_router(graph.router, prefix="/api/graph", tags=["Graph"])
 app.include_router(config.router, prefix="/api/config", tags=["Configuration"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+app.include_router(files.router, prefix="/api", tags=["Files"])
 
 
 @app.get("/")

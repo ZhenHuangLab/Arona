@@ -349,7 +349,13 @@ class QueryMixin:
         # 1. Get original retrieval prompt (without generating final answer)
         # Apply rerank defaults here too to avoid LightRAG warnings when reranker isn't configured
         kwargs = self._apply_query_defaults(kwargs)
-        query_param = QueryParam(mode=mode, only_need_prompt=True, **kwargs)
+        # When the outer caller requests streaming (`stream=True`), LightRAG may return an
+        # async iterator rather than a string prompt. The VLM-enhanced path needs the full
+        # prompt text (for regex extraction), so explicitly disable streaming for the
+        # "only_need_prompt" retrieval step.
+        prompt_kwargs = dict(kwargs)
+        prompt_kwargs.pop("stream", None)
+        query_param = QueryParam(mode=mode, only_need_prompt=True, **prompt_kwargs)
         raw_prompt = await self.lightrag.aquery(query, param=query_param)
 
         self.logger.debug("Retrieved raw prompt from LightRAG")
@@ -579,6 +585,17 @@ class QueryMixin:
         Returns:
             tuple: (processed prompt, image count)
         """
+        # Some callers may accidentally pass a streamed/async prompt object.
+        # Normalize to a string to avoid regex type errors.
+        if prompt is not None and not isinstance(prompt, str):
+            if hasattr(prompt, "__aiter__"):
+                parts: list[str] = []
+                async for chunk in prompt:  # type: ignore[union-attr]
+                    parts.append(str(chunk or ""))
+                prompt = "".join(parts)
+            else:
+                prompt = str(prompt)
+
         # Handle None or empty prompt
         if not prompt:
             self.logger.warning(

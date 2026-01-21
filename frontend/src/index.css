@@ -152,6 +152,10 @@
     @apply bg-muted/40 font-medium;
   }
 
+  .markdown img {
+    @apply my-2 max-w-full h-auto rounded-md;
+  }
+
   /* KaTeX math rendering (rehype-katex) */
   .markdown .katex-display {
     @apply my-3 overflow-x-auto overflow-y-hidden;

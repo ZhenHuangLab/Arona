@@ -129,6 +129,22 @@ bash scripts/start_frontend.sh
 
 Arona 支持多会话持久化管理，会话与消息存储在 SQLite（`backend/data/chat.db`）。
 
+### Assistant 回复中的图片（Markdown）
+
+Arona 的 Chat 消息内容本质上是 **Markdown 字符串**。因此：
+
+- ✅ 助手回复里“可以包含图片”，前端会渲染 Markdown 的图片语法：`![](...)` / `![alt](...)`
+- ❗ 浏览器无法直接访问服务器本地文件路径（例如 `images/foo.jpg`、`/abs/path/to/foo.jpg`），否则就会出现“有图片但显示不出来 / 破图”的问题
+
+为了解决这个问题，Backend 提供了一个只读的图片文件服务接口：
+
+- `GET /api/files?path=...`
+- 仅允许读取 `WORKING_DIR`（默认 `./rag_storage`）与 `UPLOAD_DIR`（默认 `./uploads`）下的常见**位图**文件（jpg/png/webp/...），用于安全展示解析出的图片
+
+前端的 Markdown 渲染器会对图片 `src` 做自动处理：
+
+- 当图片 `src` 看起来是本地路径（例如 `images/<hash>.jpg`、`rag_storage/parsed_output/.../images/<hash>.jpg`、或绝对路径）时，会自动改写为 `/api/files?path=...`，从而让图片可以在浏览器中显示
+
 ### 端点概览
 
 | 方法 | 端点 | 说明 |

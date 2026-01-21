@@ -91,3 +91,11 @@ playwright-report/
 test-results/
 frontend/playwright-report/
 frontend/test-results/
+
+# Keep Vitest setup tracked (repo uses `frontend/src/__tests__/setup.ts`)
+!frontend/src/__tests__/
+!frontend/src/__tests__/setup.ts
+
+# Local screenshot artifacts (avoid accidental commits)
+/image.png
+/Image_*.png
