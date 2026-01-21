@@ -409,6 +409,132 @@ test.describe('Chat Interface', () => {
       .toBe('Hello, assistant!');
   });
 
+  test('retries assistant message and keeps variants history', async ({ page }) => {
+    const sessionId = uuidv4();
+    const assistantText1 = 'First assistant response';
+    const assistantText2 = 'Second assistant response (retry)';
+    let assistantMessageId: string | null = null;
+    let lastRequestId: string | null = null;
+
+    // Mock session detail
+    await page.route(`**/api/chat/sessions/${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: sessionId,
+          title: 'Test Session',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
+        }),
+      });
+    });
+
+    // Mock messages list (empty initially)
+    await page.route(`**/api/chat/sessions/${sessionId}/messages*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [],
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    });
+
+    // Mock streaming turn API (SSE) - first assistant response
+    await page.route(`**/api/chat/sessions/${sessionId}/turn:stream`, async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      lastRequestId = body.request_id;
+      assistantMessageId = uuidv4();
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          `data: ${JSON.stringify({ type: 'delta', delta: assistantText1 })}`,
+          '',
+          `data: ${JSON.stringify({
+            type: 'final',
+            response: {
+              turn_id: body.request_id,
+              status: 'completed',
+              user_message: {
+                id: uuidv4(),
+                session_id: sessionId,
+                role: 'user',
+                content: body.query,
+                created_at: new Date().toISOString(),
+                metadata: { mode: 'hybrid' },
+              },
+              assistant_message: {
+                id: assistantMessageId,
+                session_id: sessionId,
+                role: 'assistant',
+                content: assistantText1,
+                created_at: new Date().toISOString(),
+                metadata: { request_id: body.request_id },
+              },
+              error: null,
+            },
+          })}`,
+          '',
+        ].join('\n\n'),
+      });
+    });
+
+    // Mock retry endpoint (updates assistant message in-place with variants)
+    await page.route(`**/api/chat/sessions/${sessionId}/messages/*/retry`, async (route) => {
+      if (!assistantMessageId) throw new Error('assistantMessageId not set');
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: assistantMessageId,
+          session_id: sessionId,
+          role: 'assistant',
+          content: assistantText2,
+          created_at: new Date().toISOString(),
+          metadata: {
+            request_id: lastRequestId,
+            variants: [assistantText1, assistantText2],
+            variant_index: 1,
+          },
+        }),
+      });
+    });
+
+    await page.goto(`/chat/${sessionId}`);
+
+    const messageInput = page.getByPlaceholder('Ask anything...');
+    const sendButton = page.getByRole('button', { name: /send message/i });
+
+    await messageInput.fill('Retry me');
+    await sendButton.click();
+
+    await expect(page.getByText(assistantText1)).toBeVisible();
+
+    const retryButton = page.getByRole('button', { name: 'Retry assistant message' });
+    await expect(retryButton).toBeVisible();
+    await retryButton.click();
+
+    await expect(page.getByText(assistantText2)).toBeVisible();
+    await expect(page.getByText('2/2')).toBeVisible();
+
+    const prevVersion = page.getByRole('button', { name: 'Previous assistant version' });
+    await prevVersion.click();
+    await expect(page.getByText(assistantText1)).toBeVisible();
+    await expect(page.getByText('1/2')).toBeVisible();
+
+    const nextVersion = page.getByRole('button', { name: 'Next assistant version' });
+    await nextVersion.click();
+    await expect(page.getByText(assistantText2)).toBeVisible();
+  });
+
   test('sends message using Enter key', async ({ page }) => {
     const sessionId = uuidv4();
 

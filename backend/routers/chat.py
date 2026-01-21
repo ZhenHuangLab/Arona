@@ -26,11 +26,13 @@ from fastapi import APIRouter, Body, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from backend.models.chat import (
+    ChatMessage,
     ChatSession,
     CreateSessionRequest,
     DeleteSessionResponse,
     ErrorDetail,
     MessageListResponse,
+    RetryAssistantRequest,
     SessionListResponse,
     TurnRequest,
     TurnResponse,
@@ -969,3 +971,194 @@ async def create_turn_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# =============================================================================
+# Message Retry (Regenerate)
+# =============================================================================
+
+
+@router.post(
+    "/sessions/{session_id}/messages/{assistant_message_id}/retry",
+    response_model=ChatMessage,
+)
+async def retry_assistant_message(
+    request: Request,
+    session_id: str,
+    assistant_message_id: str,
+    body: RetryAssistantRequest = Body(default_factory=RetryAssistantRequest),
+) -> ChatMessage:
+    """
+    Regenerate an assistant message by re-running the underlying user prompt.
+
+    Notes:
+    - For now, we only allow retrying the *latest* message in the session to avoid
+      creating inconsistent histories (branching is not yet modeled in storage).
+    - Retry history is stored in the assistant message metadata as:
+      - metadata.variants: string[]
+      - metadata.variant_index: number (0-based active index)
+    """
+    store = _get_chat_store(request)
+    rag_service = getattr(request.app.state, "rag_service", None)
+
+    session = store.get_session(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_make_error("SESSION_NOT_FOUND", f"Session {session_id} not found"),
+        )
+
+    assistant_message = store.get_message(assistant_message_id)
+    if assistant_message is None or assistant_message.session_id != session_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_make_error(
+                "MESSAGE_NOT_FOUND",
+                f"Assistant message {assistant_message_id} not found",
+            ),
+        )
+    if assistant_message.role.value != "assistant":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_make_error("BAD_REQUEST", "Only assistant messages can be retried"),
+        )
+
+    latest = store.get_latest_message(session_id)
+    if latest is None or latest.id != assistant_message_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_make_error(
+                "NOT_LATEST_MESSAGE",
+                "Can only retry the latest assistant message in the session",
+            ),
+        )
+
+    turn_id = None
+    if assistant_message.metadata and isinstance(assistant_message.metadata, dict):
+        turn_id = assistant_message.metadata.get("request_id")
+    if not turn_id or not isinstance(turn_id, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_make_error(
+                "MISSING_REQUEST_ID",
+                "Assistant message is missing request_id metadata (cannot retry)",
+            ),
+        )
+
+    turn = store.get_turn(turn_id)
+    if turn is None or turn.session_id != session_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_make_error(
+                "TURN_NOT_FOUND",
+                "Turn not found for assistant message (cannot retry)",
+            ),
+        )
+    if not turn.user_message_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_make_error(
+                "STORAGE_ERROR",
+                "Turn record missing user_message_id (cannot retry)",
+                extra={"turn_id": turn_id},
+            ),
+        )
+
+    user_message = store.get_message(turn.user_message_id)
+    if user_message is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_make_error(
+                "STORAGE_ERROR",
+                "Referenced user message is missing (cannot retry)",
+                extra={"turn_id": turn_id},
+            ),
+        )
+
+    query = (user_message.content or "").strip()
+    if not query:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_make_error("EMPTY_QUERY", "Query cannot be empty"),
+        )
+
+    # User requirement override: ignore per-request mode and always use hybrid.
+    mode = DEFAULT_CHAT_MODE
+
+    # Assemble history up to (but excluding) this user message.
+    try:
+        history_msgs = store.get_messages_before(
+            session_id=session_id,
+            before_message_id=user_message.id,
+            limit=body.history_limit,
+            max_tokens=body.max_history_tokens,
+        )
+        conversation_history = [
+            {"role": msg.role.value, "content": msg.content} for msg in history_msgs
+        ]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load history for retry: %s", exc)
+        conversation_history = []
+
+    if rag_service is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_make_error("LLM_ERROR", "RAG service not available"),
+        )
+
+    kwargs: dict[str, Any] = {}
+    if body.max_tokens is not None:
+        kwargs["max_tokens"] = body.max_tokens
+    if body.temperature is not None:
+        kwargs["temperature"] = body.temperature
+    if conversation_history:
+        kwargs["conversation_history"] = conversation_history
+
+    # Multimodal: re-use persisted image path from the original user message if present.
+    img_path = None
+    if user_message.metadata and isinstance(user_message.metadata, dict):
+        img_path = user_message.metadata.get("img_path")
+
+    try:
+        if img_path and hasattr(rag_service, "query_with_multimodal"):
+            assistant_content = await rag_service.query_with_multimodal(
+                query=query,
+                multimodal_content=[{"type": "image", "img_path": img_path}],
+                mode=mode,
+                **kwargs,
+            )
+        else:
+            assistant_content = await rag_service.query(query=query, mode=mode, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("RAG service retry failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_make_error("LLM_ERROR", str(exc)),
+        ) from exc
+
+    if not isinstance(assistant_content, str) or not assistant_content:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_make_error("LLM_ERROR", "Query pipeline returned no response"),
+        )
+
+    # Update assistant message in-place, keeping a variants history in metadata.
+    meta = dict(assistant_message.metadata or {})
+    variants = meta.get("variants")
+    if not isinstance(variants, list) or not all(isinstance(v, str) for v in variants):
+        variants = [assistant_message.content]
+
+    variants.append(assistant_content)
+    meta["variants"] = variants
+    meta["variant_index"] = len(variants) - 1
+
+    updated = store.update_message(
+        assistant_message_id, content=assistant_content, metadata=meta
+    )
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_make_error("STORAGE_ERROR", "Failed to update assistant message"),
+        )
+
+    return updated

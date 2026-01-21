@@ -9,7 +9,7 @@ import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-
 import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '@/store/chatStore';
-import { createTurn, createTurnStream } from '@/api/chat';
+import { createTurn, createTurnStream, retryAssistantMessage } from '@/api/chat';
 import { toast } from '@/lib/toast';
 import { APIException } from '@/types';
 import type { QueryMode, MessageListResponse, TurnRequest } from '@/types/chat';
@@ -350,6 +350,42 @@ export function useChat(sessionId?: string) {
   });
 
   /**
+   * Retry (regenerate) an assistant message in-place.
+   */
+  const retryAssistantMutation = useMutation({
+    mutationFn: async ({ assistantMessageId }: { assistantMessageId: string }) => {
+      if (!sessionId) {
+        throw new Error('No active session');
+      }
+      return retryAssistantMessage(sessionId, assistantMessageId);
+    },
+    onSuccess: (assistantDto) => {
+      const sid = sessionId;
+      if (!sid) return;
+
+      // Update the message in React Query cache (in-place).
+      queryClient.setQueryData<InfiniteData<MessageListResponse>>(
+        chatMessagesKeys.list(sid),
+        (old) => {
+          if (!old) return old;
+          const newPages = old.pages.map((page) => ({
+            ...page,
+            messages: page.messages.map((m) => (m.id === assistantDto.id ? assistantDto : m)),
+          }));
+          return { ...old, pages: newPages };
+        }
+      );
+
+      // Session updated_at may have changed (we bump it when updating message content).
+      queryClient.invalidateQueries({ queryKey: chatSessionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: chatSessionsKeys.detail(sid) });
+    },
+    onError: (error: Error) => {
+      toast.error('Failed to retry message', error.message);
+    },
+  });
+
+  /**
    * Send a message to the current session.
    */
   const sendMessage = (message: string, mode?: QueryMode, imageFile?: File | null) => {
@@ -375,6 +411,17 @@ export function useChat(sessionId?: string) {
     abortControllerRef.current?.abort();
   };
 
+  /**
+   * Retry (regenerate) a specific assistant message.
+   */
+  const retryAssistant = async (assistantMessageId: string) => {
+    if (!sessionId) {
+      toast.error('No active session', 'Please create or select a chat session.');
+      return;
+    }
+    await retryAssistantMutation.mutateAsync({ assistantMessageId });
+  };
+
   return {
     messages,
     isLoadingMessages,
@@ -382,7 +429,9 @@ export function useChat(sessionId?: string) {
     sendMessage,
     changeMode,
     stopGenerating,
+    retryAssistant,
     isSending: sendMessageMutation.isPending,
+    isRetrying: retryAssistantMutation.isPending,
     // Pagination for loading older messages
     fetchNextPage,
     hasNextPage,

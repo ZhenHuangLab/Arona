@@ -36,7 +36,15 @@ export const ChatView: FC = () => {
   const { isLoading: isLoadingSession } = useChatSession(sessionId);
 
   // Chat hook with session context
-  const { messages, sendMessage, stopGenerating, isSending, isLoadingMessages } = useChat(sessionId);
+  const {
+    messages,
+    sendMessage,
+    stopGenerating,
+    retryAssistant,
+    isSending,
+    isLoadingMessages,
+    isRetrying,
+  } = useChat(sessionId);
 
   // Create session mutation
   const createSessionMutation = useCreateSession();
@@ -142,7 +150,12 @@ export const ChatView: FC = () => {
       >
         {/* Messages Area */}
         <div className="flex-1 overflow-hidden" role="log" aria-live="polite" aria-atomic="false">
-          <ChatBox messages={messages} isLoading={isLoadingMessages && messages.length === 0} />
+          <ChatBox
+            messages={messages}
+            isLoading={isLoadingMessages && messages.length === 0}
+            onRetryAssistant={retryAssistant}
+            isRetrying={isRetrying}
+          />
         </div>
 
         {/* Input Area */}

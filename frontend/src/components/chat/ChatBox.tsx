@@ -7,6 +7,8 @@ import type { ChatMessage } from '@/types/chat';
 interface ChatBoxProps {
   messages: ChatMessage[];
   isLoading?: boolean;
+  onRetryAssistant?: (assistantMessageId: string) => Promise<void>;
+  isRetrying?: boolean;
 }
 
 /**
@@ -15,12 +17,16 @@ interface ChatBoxProps {
  * Container for chat messages with auto-scroll functionality.
  * Displays messages in chronological order with empty state.
  */
-export function ChatBox({ messages, isLoading }: ChatBoxProps) {
+export function ChatBox({ messages, isLoading, onRetryAssistant, isRetrying }: ChatBoxProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
+  const [selectedVariantByMessageId, setSelectedVariantByMessageId] = useState<Record<string, number>>(
+    {}
+  );
+  const variantsLenRef = useRef<Record<string, number>>({});
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' });
@@ -61,6 +67,55 @@ export function ChatBox({ messages, isLoading }: ChatBoxProps) {
     handleScroll();
   }, [handleScroll]);
 
+  // Keep selected variant index stable per message, and auto-jump to newest on retry.
+  useEffect(() => {
+    setSelectedVariantByMessageId((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const m of messages) {
+        if (m.role !== 'assistant') continue;
+        if (!Array.isArray(m.variants) || m.variants.length === 0) continue;
+
+        const len = m.variants.length;
+        const lastSeenLen = variantsLenRef.current[m.id];
+        const desiredDefault =
+          typeof m.variantIndex === 'number' && m.variantIndex >= 0 && m.variantIndex < len
+            ? m.variantIndex
+            : len - 1;
+
+        if (typeof next[m.id] !== 'number') {
+          next[m.id] = desiredDefault;
+          changed = true;
+        }
+
+        if (typeof lastSeenLen === 'number' && len > lastSeenLen) {
+          next[m.id] = len - 1;
+          changed = true;
+        }
+
+        if (next[m.id] < 0) {
+          next[m.id] = 0;
+          changed = true;
+        }
+        if (next[m.id] >= len) {
+          next[m.id] = len - 1;
+          changed = true;
+        }
+
+        variantsLenRef.current[m.id] = len;
+      }
+
+      return changed ? next : prev;
+    });
+  }, [messages]);
+
+  const handleSelectVariant = useCallback((messageId: string, nextIndex: number) => {
+    setSelectedVariantByMessageId((prev) => ({ ...prev, [messageId]: nextIndex }));
+  }, []);
+
+  const latestMessageId = messages[messages.length - 1]?.id;
+
   return (
     <div className="h-full relative">
       <div
@@ -69,9 +124,25 @@ export function ChatBox({ messages, isLoading }: ChatBoxProps) {
         className="h-full overflow-y-auto scrollbar-thin"
       >
         <div className="mx-auto w-full max-w-3xl px-3 sm:px-6 py-6 space-y-6">
-          {messages.map((message, index) => (
-            <Message key={message.id || index} message={message} />
-          ))}
+          {messages.map((message, index) => {
+            const canRetryMessage =
+              !!onRetryAssistant &&
+              message.role === 'assistant' &&
+              !message.pending &&
+              message.id === latestMessageId;
+
+            return (
+              <Message
+                key={message.id || index}
+                message={message}
+                selectedVariantIndex={selectedVariantByMessageId[message.id]}
+                onSelectVariant={handleSelectVariant}
+                onRetry={onRetryAssistant}
+                canRetry={canRetryMessage}
+                isRetrying={isRetrying}
+              />
+            );
+          })}
           {isLoading ? (
             <div className="text-sm text-muted-foreground">Loading…</div>
           ) : null}

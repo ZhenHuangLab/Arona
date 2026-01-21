@@ -868,6 +868,150 @@ class ChatStore:
         finally:
             conn.close()
 
+    def update_message(
+        self,
+        message_id: str,
+        *,
+        content: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> Optional[ChatMessage]:
+        """
+        Update an existing message's content and/or metadata.
+
+        Also updates the parent session's updated_at timestamp.
+
+        Args:
+            message_id: UUID of the message.
+            content: New content (omit to keep existing).
+            metadata: New metadata dict (omit to keep existing).
+
+        Returns:
+            Updated ChatMessage if found; otherwise None.
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                """
+                SELECT id, session_id, role, content, token_count, user_id,
+                       created_at, metadata_json
+                FROM chat_messages
+                WHERE id = ?
+                """,
+                (message_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+
+            existing = self._row_to_message(row)
+            next_content = existing.content if content is None else content
+            next_metadata = existing.metadata if metadata is None else metadata
+            next_metadata_json = json.dumps(next_metadata) if next_metadata else None
+
+            now = utc_now_iso()
+            conn.execute(
+                """
+                UPDATE chat_messages
+                SET content = ?, metadata_json = ?
+                WHERE id = ?
+                """,
+                (next_content, next_metadata_json, message_id),
+            )
+            conn.execute(
+                "UPDATE chat_sessions SET updated_at = ? WHERE id = ?",
+                (now, existing.session_id),
+            )
+
+            conn.commit()
+
+            return ChatMessage(
+                id=existing.id,
+                session_id=existing.session_id,
+                role=existing.role,
+                content=next_content,
+                token_count=existing.token_count,
+                user_id=existing.user_id,
+                created_at=existing.created_at,
+                metadata=next_metadata,
+            )
+
+        except sqlite3.Error as e:
+            logger.error(f"Failed to update message {message_id}: {e}", exc_info=True)
+            raise
+        finally:
+            conn.close()
+
+    def get_latest_message(self, session_id: str) -> Optional[ChatMessage]:
+        """Return the latest message in a session (created_at DESC, id DESC)."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                """
+                SELECT id, session_id, role, content, token_count, user_id,
+                       created_at, metadata_json
+                FROM chat_messages
+                WHERE session_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (session_id,),
+            )
+            row = cursor.fetchone()
+            return self._row_to_message(row) if row else None
+        finally:
+            conn.close()
+
+    def get_messages_before(
+        self,
+        *,
+        session_id: str,
+        before_message_id: str,
+        limit: int = 20,
+        max_tokens: Optional[int] = None,
+    ) -> list[ChatMessage]:
+        """
+        Get messages strictly before a given message (by (created_at, id)).
+
+        Returns messages in ASC order (oldest first), suitable for history assembly.
+        """
+        anchor = self.get_message(before_message_id)
+        if anchor is None or anchor.session_id != session_id:
+            return []
+
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                """
+                SELECT id, session_id, role, content, token_count, user_id,
+                       created_at, metadata_json
+                FROM chat_messages
+                WHERE session_id = ?
+                  AND (created_at < ? OR (created_at = ? AND id < ?))
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (session_id, anchor.created_at, anchor.created_at, anchor.id, limit),
+            )
+            rows = cursor.fetchall()
+            messages = [self._row_to_message(row) for row in rows]
+            messages.reverse()
+
+            if max_tokens and messages:
+                total_tokens = 0
+                truncated: list[ChatMessage] = []
+                for msg in reversed(messages):
+                    msg_tokens = msg.token_count or 0
+                    if total_tokens + msg_tokens <= max_tokens:
+                        truncated.insert(0, msg)
+                        total_tokens += msg_tokens
+                    else:
+                        break
+                messages = truncated
+
+            return messages
+        finally:
+            conn.close()
+
     def list_messages(
         self,
         session_id: str,

@@ -143,6 +143,12 @@ export interface ChatMessage {
   error?: boolean;
   /** Indicates a placeholder message pending backend confirmation */
   pending?: boolean;
+  /** request_id (turn_id) from backend metadata, when available */
+  requestId?: string;
+  /** Assistant retry variants (0..n-1). When present, `content` is the active variant. */
+  variants?: string[];
+  /** Active variant index (0-based) when `variants` is present. */
+  variantIndex?: number;
 }
 
 export interface ChatState {
@@ -168,6 +174,18 @@ export interface ChatSettings {
 export function dtoToUiMessage(dto: ChatMessageDTO): ChatMessage {
   const role = dto.role === 'system' ? 'assistant' : dto.role;
   const mode = (dto.metadata?.mode as QueryMode) ?? undefined;
+  const requestId =
+    typeof dto.metadata?.request_id === 'string' ? (dto.metadata.request_id as string) : undefined;
+  const variantsRaw = dto.metadata?.variants;
+  const variants =
+    Array.isArray(variantsRaw) && variantsRaw.every((v) => typeof v === 'string')
+      ? (variantsRaw as string[])
+      : undefined;
+  const variantIndexRaw = dto.metadata?.variant_index;
+  const variantIndex =
+    typeof variantIndexRaw === 'number' && Number.isInteger(variantIndexRaw)
+      ? (variantIndexRaw as number)
+      : undefined;
   return {
     id: dto.id,
     role,
@@ -176,6 +194,9 @@ export function dtoToUiMessage(dto: ChatMessageDTO): ChatMessage {
     mode,
     error: dto.metadata?.error === true,
     pending: dto.metadata?.pending === true,
+    requestId,
+    variants,
+    variantIndex,
   };
 }
 

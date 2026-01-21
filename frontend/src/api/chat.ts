@@ -193,6 +193,36 @@ export async function listMessages(
 }
 
 // =============================================================================
+// Message (Retry / Regenerate)
+// =============================================================================
+
+export interface RetryAssistantMessageRequest {
+  max_tokens?: number | null;
+  temperature?: number | null;
+  history_limit?: number;
+  max_history_tokens?: number;
+}
+
+/**
+ * Retry (regenerate) an assistant message in-place, storing variants history in metadata.
+ */
+export async function retryAssistantMessage(
+  sessionId: string,
+  assistantMessageId: string,
+  req: RetryAssistantMessageRequest = {}
+): Promise<MessageListResponse['messages'][number]> {
+  try {
+    const response = await apiClient.post<MessageListResponse['messages'][number]>(
+      `/api/chat/sessions/${sessionId}/messages/${assistantMessageId}/retry`,
+      req
+    );
+    return response.data;
+  } catch (error) {
+    handleAPIError(error);
+  }
+}
+
+// =============================================================================
 // Turn
 // =============================================================================
 

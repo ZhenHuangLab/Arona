@@ -743,6 +743,91 @@ class TestTurnStreamAPI:
 
 
 # =============================================================================
+# Assistant Retry Tests
+# =============================================================================
+
+
+class TestAssistantRetry:
+    """Tests for POST /sessions/{session_id}/messages/{assistant_message_id}/retry."""
+
+    def test_retry_latest_assistant_message_updates_in_place(
+        self, client: TestClient, mock_rag_service: MockRAGService
+    ):
+        create_resp = client.post("/api/chat/sessions", json={"title": "Retry Test"})
+        session_id = create_resp.json()["id"]
+
+        # First turn creates user + assistant messages.
+        request_id = str(uuid.uuid4())
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": request_id, "query": "Hello"},
+        )
+        assert turn_resp.status_code == 200
+        first = turn_resp.json()
+        assistant_id = first["assistant_message"]["id"]
+        first_content = first["assistant_message"]["content"]
+        assert mock_rag_service.call_count == 1
+
+        # Retry should regenerate and store variants in metadata.
+        mock_rag_service.response = "Retry response"
+        retry_resp = client.post(
+            f"/api/chat/sessions/{session_id}/messages/{assistant_id}/retry",
+            json={},
+        )
+        assert retry_resp.status_code == 200
+        data = retry_resp.json()
+        assert data["id"] == assistant_id
+        assert data["content"] == "Retry response"
+        assert data["metadata"]["variants"] == [first_content, "Retry response"]
+        assert data["metadata"]["variant_index"] == 1
+        assert mock_rag_service.call_count == 2
+
+        # Listing messages should show the updated assistant content.
+        msgs = client.get(f"/api/chat/sessions/{session_id}/messages").json()["messages"]
+        assert msgs[-1]["id"] == assistant_id
+        assert msgs[-1]["content"] == "Retry response"
+        assert msgs[-1]["metadata"]["variant_index"] == 1
+
+        # A second retry appends another variant.
+        mock_rag_service.response = "Third response"
+        retry2_resp = client.post(
+            f"/api/chat/sessions/{session_id}/messages/{assistant_id}/retry",
+            json={},
+        )
+        assert retry2_resp.status_code == 200
+        data2 = retry2_resp.json()
+        assert data2["metadata"]["variants"] == [
+            first_content,
+            "Retry response",
+            "Third response",
+        ]
+        assert data2["metadata"]["variant_index"] == 2
+
+    def test_retry_non_latest_message_conflicts(self, client: TestClient):
+        create_resp = client.post("/api/chat/sessions", json={"title": "Retry Conflict"})
+        session_id = create_resp.json()["id"]
+
+        # First turn.
+        turn1 = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Turn 1"},
+        ).json()
+        assistant_id_1 = turn1["assistant_message"]["id"]
+
+        # Second turn makes a different assistant message the latest.
+        client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Turn 2"},
+        )
+
+        retry_resp = client.post(
+            f"/api/chat/sessions/{session_id}/messages/{assistant_id_1}/retry",
+            json={},
+        )
+        assert retry_resp.status_code == 409
+        assert retry_resp.json()["detail"]["code"] == "NOT_LATEST_MESSAGE"
+
+# =============================================================================
 # Session Title Auto-Update Tests
 # =============================================================================
 

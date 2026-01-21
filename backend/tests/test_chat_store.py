@@ -449,6 +449,48 @@ class TestMessageCRUD:
         result = chat_store.list_messages(session.id)
         assert len(result.messages) == 0
 
+    def test_update_message_updates_session_updated_at(self, chat_store):
+        session = chat_store.create_session()
+        msg = chat_store.append_message(session.id, "assistant", "Hello", metadata={"v": 1})
+        before = chat_store.get_session(session.id).updated_at
+
+        time.sleep(0.02)
+        updated = chat_store.update_message(msg.id, content="Hello v2", metadata={"v": 2})
+        assert updated is not None
+        assert updated.content == "Hello v2"
+        assert updated.metadata == {"v": 2}
+
+        after = chat_store.get_session(session.id).updated_at
+        assert after > before
+
+    def test_get_latest_message(self, chat_store):
+        session = chat_store.create_session()
+        m1 = chat_store.append_message(session.id, "user", "First")
+        time.sleep(0.01)
+        m2 = chat_store.append_message(session.id, "assistant", "Second")
+
+        latest = chat_store.get_latest_message(session.id)
+        assert latest is not None
+        assert latest.id == m2.id
+
+    def test_get_messages_before(self, chat_store):
+        session = chat_store.create_session()
+        m1 = chat_store.append_message(session.id, "user", "M1")
+        time.sleep(0.01)
+        m2 = chat_store.append_message(session.id, "assistant", "M2")
+        time.sleep(0.01)
+        m3 = chat_store.append_message(session.id, "user", "M3")
+
+        before_m3 = chat_store.get_messages_before(
+            session_id=session.id, before_message_id=m3.id, limit=10
+        )
+        assert [m.content for m in before_m3] == ["M1", "M2"]
+
+        before_m2 = chat_store.get_messages_before(
+            session_id=session.id, before_message_id=m2.id, limit=10
+        )
+        assert [m.content for m in before_m2] == ["M1"]
+
 
 # =============================================================================
 # Turn Idempotency Tests

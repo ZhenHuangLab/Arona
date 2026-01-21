@@ -136,6 +136,18 @@ class TurnRequest(BaseModel):
         default=8000, description="Token budget for history"
     )
 
+class RetryAssistantRequest(BaseModel):
+    """Request body for retrying an assistant message (regenerate)."""
+
+    max_tokens: Optional[int] = Field(default=None)
+    temperature: Optional[float] = Field(default=None)
+    history_limit: int = Field(
+        default=20, description="Max recent messages for history"
+    )
+    max_history_tokens: int = Field(
+        default=8000, description="Token budget for history"
+    )
+
 
 # =============================================================================
 # Response Models
