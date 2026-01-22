@@ -149,6 +149,12 @@ class RetryAssistantRequest(BaseModel):
     )
 
 
+class UpdateMessageRequest(BaseModel):
+    """Request body for updating a message's content (limited to latest user message)."""
+
+    content: str = Field(..., min_length=1, description="Updated message content")
+
+
 # =============================================================================
 # Response Models
 # =============================================================================

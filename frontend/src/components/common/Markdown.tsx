@@ -56,7 +56,7 @@ function normalizeHtmlImgTags(content: string): string {
 
   const extractAttr = (tag: string, name: string): string | null => {
     const re = new RegExp(
-      `${name}\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s>]+))`,
+      `${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`,
       'i'
     );
     const m = tag.match(re);
@@ -64,12 +64,12 @@ function normalizeHtmlImgTags(content: string): string {
   };
 
   const convertImgTags = (text: string): string => {
-    return text.replace(/<img\\b[^>]*>/gi, (tag) => {
+    return text.replace(/<img\b[^>]*>/gi, (tag) => {
       const src = extractAttr(tag, 'src');
       if (!src) return tag;
       const alt = extractAttr(tag, 'alt') ?? '';
       // Escape ']' in alt to avoid breaking Markdown.
-      const safeAlt = alt.replace(/\\]/g, '\\\\]');
+      const safeAlt = alt.replace(/]/g, '\\]');
       return `![${safeAlt}](${src})`;
     });
   };
@@ -127,7 +127,7 @@ export function Markdown({ content, className }: MarkdownProps) {
   const normalized = normalizeHtmlImgTags(content);
 
   const components: Components = {
-    img: ({ node: _node, src, alt, className: imgClassName, ...props }) => {
+    img: ({ src, alt, className: imgClassName, ...props }) => {
       const safeSrc = sanitizeUrl(src ?? '', 'image');
       if (!safeSrc) return null;
 
@@ -146,7 +146,7 @@ export function Markdown({ content, className }: MarkdownProps) {
         />
       );
     },
-    a: ({ node: _node, href, ...props }) => {
+    a: ({ href, ...props }) => {
       const safeHref = sanitizeUrl(href ?? '', 'link');
       if (!safeHref) return <span {...props} />;
 

@@ -41,9 +41,11 @@ export const ChatView: FC = () => {
     sendMessage,
     stopGenerating,
     retryAssistant,
+    editUserMessage,
     isSending,
     isLoadingMessages,
     isRetrying,
+    isEditing,
   } = useChat(sessionId);
 
   // Create session mutation
@@ -155,6 +157,8 @@ export const ChatView: FC = () => {
             isLoading={isLoadingMessages && messages.length === 0}
             onRetryAssistant={retryAssistant}
             isRetrying={isRetrying}
+            onEditUserMessage={editUserMessage}
+            isEditing={isEditing}
           />
         </div>
 

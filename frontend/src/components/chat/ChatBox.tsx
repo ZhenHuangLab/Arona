@@ -9,6 +9,8 @@ interface ChatBoxProps {
   isLoading?: boolean;
   onRetryAssistant?: (assistantMessageId: string) => Promise<void>;
   isRetrying?: boolean;
+  onEditUserMessage?: (userMessageId: string, assistantMessageId: string, newContent: string) => Promise<void>;
+  isEditing?: boolean;
 }
 
 /**
@@ -17,7 +19,7 @@ interface ChatBoxProps {
  * Container for chat messages with auto-scroll functionality.
  * Displays messages in chronological order with empty state.
  */
-export function ChatBox({ messages, isLoading, onRetryAssistant, isRetrying }: ChatBoxProps) {
+export function ChatBox({ messages, isLoading, onRetryAssistant, isRetrying, onEditUserMessage, isEditing }: ChatBoxProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -115,6 +117,8 @@ export function ChatBox({ messages, isLoading, onRetryAssistant, isRetrying }: C
   }, []);
 
   const latestMessageId = messages[messages.length - 1]?.id;
+  const latestAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+  const latestAssistantRequestId = latestAssistant?.requestId;
 
   return (
     <div className="h-full relative">
@@ -131,6 +135,15 @@ export function ChatBox({ messages, isLoading, onRetryAssistant, isRetrying }: C
               !message.pending &&
               message.id === latestMessageId;
 
+            const canEditMessage =
+              !!onEditUserMessage &&
+              message.role === 'user' &&
+              !message.pending &&
+              !!latestAssistant &&
+              !latestAssistant.pending &&
+              !!latestAssistantRequestId &&
+              message.requestId === latestAssistantRequestId;
+
             return (
               <Message
                 key={message.id || index}
@@ -140,6 +153,14 @@ export function ChatBox({ messages, isLoading, onRetryAssistant, isRetrying }: C
                 onRetry={onRetryAssistant}
                 canRetry={canRetryMessage}
                 isRetrying={isRetrying}
+                canEdit={canEditMessage}
+                onEdit={
+                  canEditMessage && latestAssistant && onEditUserMessage
+                    ? (messageId, newContent) =>
+                        onEditUserMessage(messageId, latestAssistant.id, newContent)
+                    : undefined
+                }
+                isEditing={isEditing}
               />
             );
           })}

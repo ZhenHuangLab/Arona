@@ -9,7 +9,13 @@ import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-
 import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '@/store/chatStore';
-import { createTurn, createTurnStream, retryAssistantMessage } from '@/api/chat';
+import {
+  createTurn,
+  createTurnStream,
+  retryAssistantMessage,
+  retryAssistantMessageStream,
+  updateUserMessage,
+} from '@/api/chat';
 import { toast } from '@/lib/toast';
 import { APIException } from '@/types';
 import type { QueryMode, MessageListResponse, TurnRequest } from '@/types/chat';
@@ -25,6 +31,11 @@ const fileToDataURL = (file: File): Promise<string> =>
     reader.onerror = () => reject(new Error('Failed to read image file'));
     reader.readAsDataURL(file);
   });
+
+// Include as much session context as practical by default.
+// Backend will still apply its own limits/truncation if configured.
+const DEFAULT_HISTORY_LIMIT = 10_000;
+const DEFAULT_MAX_HISTORY_TOKENS = 200_000;
 
 /**
  * Session-aware chat hook.
@@ -204,6 +215,8 @@ export function useChat(sessionId?: string) {
           query: message,
           mode,
           multimodal_content,
+          history_limit: DEFAULT_HISTORY_LIMIT,
+          max_history_tokens: DEFAULT_MAX_HISTORY_TOKENS,
         }, { signal: abortControllerRef.current.signal })) {
           if (event.type === 'delta') {
             await applyDeltaWithTypewriter(event.delta || '');
@@ -219,6 +232,8 @@ export function useChat(sessionId?: string) {
             query: message,
             mode,
             multimodal_content,
+            history_limit: DEFAULT_HISTORY_LIMIT,
+            max_history_tokens: DEFAULT_MAX_HISTORY_TOKENS,
           });
         } else {
           throw error;
@@ -350,20 +365,132 @@ export function useChat(sessionId?: string) {
   });
 
   /**
-   * Retry (regenerate) an assistant message in-place.
+   * Retry (regenerate) an assistant message in-place with streaming.
    */
   const retryAssistantMutation = useMutation({
     mutationFn: async ({ assistantMessageId }: { assistantMessageId: string }) => {
       if (!sessionId) {
         throw new Error('No active session');
       }
-      return retryAssistantMessage(sessionId, assistantMessageId);
+
+      // Cancel any previous in-flight stream (safety)
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
+      // Clear the assistant message content immediately (show loading state)
+      queryClient.setQueryData<InfiniteData<MessageListResponse>>(
+        chatMessagesKeys.list(sessionId),
+        (old) => {
+          if (!old) return old;
+          const newPages = old.pages.map((page) => ({
+            ...page,
+            messages: page.messages.map((m) =>
+              m.id === assistantMessageId
+                ? { ...m, content: '', metadata: { ...(m.metadata || {}), pending: true } }
+                : m
+            ),
+          }));
+          return { ...old, pages: newPages };
+        }
+      );
+
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      let assistantText = '';
+
+      const updateAssistantContent = (text: string) => {
+        queryClient.setQueryData<InfiniteData<MessageListResponse>>(
+          chatMessagesKeys.list(sessionId),
+          (old) => {
+            if (!old) return old;
+            const newPages = old.pages.map((page) => ({
+              ...page,
+              messages: page.messages.map((m) =>
+                m.id === assistantMessageId ? { ...m, content: text } : m
+              ),
+            }));
+            return { ...old, pages: newPages };
+          }
+        );
+      };
+
+      const applyDeltaWithTypewriter = async (delta: string) => {
+        if (!delta) return;
+
+        // If the provider already streams small chunks, the natural stream is the typing effect.
+        // When we only get a single large chunk, simulate a ChatGPT-like typewriter feel.
+        const shouldAnimate = !prefersReducedMotion && delta.length >= 40;
+        if (!shouldAnimate) {
+          assistantText += delta;
+          updateAssistantContent(assistantText);
+          return;
+        }
+
+        const tickMs = 16; // ~60fps
+        const maxDurationMs = 900;
+        const maxSteps = Math.max(1, Math.floor(maxDurationMs / tickMs));
+        const chunkSize = Math.max(8, Math.ceil(delta.length / maxSteps));
+
+        for (let i = 0; i < delta.length; i += chunkSize) {
+          if (signal.aborted) {
+            throw new DOMException('Aborted', 'AbortError');
+          }
+          assistantText += delta.slice(i, i + chunkSize);
+          updateAssistantContent(assistantText);
+          await new Promise((resolve) => setTimeout(resolve, tickMs));
+        }
+      };
+
+      let finalMessage: MessageListResponse['messages'][number] | null = null;
+
+      try {
+        for await (const event of retryAssistantMessageStream(
+          sessionId,
+          assistantMessageId,
+          {
+            history_limit: DEFAULT_HISTORY_LIMIT,
+            max_history_tokens: DEFAULT_MAX_HISTORY_TOKENS,
+          },
+          { signal }
+        )) {
+          if (event.type === 'delta') {
+            await applyDeltaWithTypewriter(event.delta || '');
+          } else if (event.type === 'final') {
+            finalMessage = event.message;
+          } else if (event.type === 'error') {
+            throw new Error(event.error.message);
+          }
+        }
+      } catch (error) {
+        // Fallback to non-streaming endpoint if the streaming route is unavailable.
+        if (error instanceof APIException && (error.status === 404 || error.status === 405)) {
+          finalMessage = await retryAssistantMessage(sessionId, assistantMessageId, {
+            history_limit: DEFAULT_HISTORY_LIMIT,
+            max_history_tokens: DEFAULT_MAX_HISTORY_TOKENS,
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      if (!finalMessage) {
+        throw new Error('Streaming ended without final response');
+      }
+
+      return finalMessage;
+    },
+    onSettled: () => {
+      abortControllerRef.current = null;
     },
     onSuccess: (assistantDto) => {
       const sid = sessionId;
-      if (!sid) return;
+      if (!sid || !assistantDto) return;
 
-      // Update the message in React Query cache (in-place).
+      // Update the message in React Query cache (in-place) with final data.
       queryClient.setQueryData<InfiniteData<MessageListResponse>>(
         chatMessagesKeys.list(sid),
         (old) => {
@@ -380,8 +507,89 @@ export function useChat(sessionId?: string) {
       queryClient.invalidateQueries({ queryKey: chatSessionsKeys.lists() });
       queryClient.invalidateQueries({ queryKey: chatSessionsKeys.detail(sid) });
     },
-    onError: (error: Error) => {
+    onError: (error: Error, { assistantMessageId }) => {
+      const sid = sessionId;
+      if (!sid) return;
+
+      // AbortController cancellation: keep whatever has been streamed so far.
+      if ((error as { name?: string }).name === 'AbortError') {
+        queryClient.setQueryData<InfiniteData<MessageListResponse>>(
+          chatMessagesKeys.list(sid),
+          (old) => {
+            if (!old) return old;
+            const newPages = old.pages.map((page) => ({
+              ...page,
+              messages: page.messages.map((m) =>
+                m.id === assistantMessageId
+                  ? { ...m, metadata: { ...(m.metadata || {}), pending: false, cancelled: true } }
+                  : m
+              ),
+            }));
+            return { ...old, pages: newPages };
+          }
+        );
+        toast.info('Stopped', 'Regeneration cancelled.');
+        return;
+      }
+
       toast.error('Failed to retry message', error.message);
+
+      // Restore pending state to false on error
+      queryClient.setQueryData<InfiniteData<MessageListResponse>>(
+        chatMessagesKeys.list(sid),
+        (old) => {
+          if (!old) return old;
+          const newPages = old.pages.map((page) => ({
+            ...page,
+            messages: page.messages.map((m) =>
+              m.id === assistantMessageId
+                ? { ...m, metadata: { ...(m.metadata || {}), pending: false, error: true } }
+                : m
+            ),
+          }));
+          return { ...old, pages: newPages };
+        }
+      );
+
+      // Refetch to get original state
+      queryClient.invalidateQueries({ queryKey: chatMessagesKeys.list(sid) });
+    },
+  });
+
+  /**
+   * Update the latest user message content in-place.
+   * Backend enforces latest-turn-only to avoid branching histories.
+   */
+  const updateUserMessageMutation = useMutation({
+    mutationFn: async ({ userMessageId, content }: { userMessageId: string; content: string }) => {
+      if (!sessionId) {
+        throw new Error('No active session');
+      }
+      return updateUserMessage(sessionId, userMessageId, { content });
+    },
+    onSuccess: (userDto) => {
+      const sid = sessionId;
+      if (!sid || !userDto) return;
+
+      // Update the message in React Query cache (in-place).
+      queryClient.setQueryData<InfiniteData<MessageListResponse>>(
+        chatMessagesKeys.list(sid),
+        (old) => {
+          if (!old) return old;
+          const newPages = old.pages.map((page) => ({
+            ...page,
+            messages: page.messages.map((m) => (m.id === userDto.id ? userDto : m)),
+          }));
+          return { ...old, pages: newPages };
+        }
+      );
+
+      // Session updated_at may have changed.
+      queryClient.invalidateQueries({ queryKey: chatSessionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: chatSessionsKeys.detail(sid) });
+    },
+    onError: (error: Error) => {
+      toast.error('Failed to edit message', error.message);
     },
   });
 
@@ -422,6 +630,25 @@ export function useChat(sessionId?: string) {
     await retryAssistantMutation.mutateAsync({ assistantMessageId });
   };
 
+  /**
+   * Edit the latest user message and regenerate the paired assistant response.
+   */
+  const editUserMessage = async (userMessageId: string, assistantMessageId: string, nextContent: string) => {
+    if (!sessionId) {
+      toast.error('No active session', 'Please create or select a chat session.');
+      return;
+    }
+
+    const trimmed = nextContent.trim();
+    if (!trimmed) {
+      toast.error('Empty message', 'Message cannot be empty.');
+      return;
+    }
+
+    await updateUserMessageMutation.mutateAsync({ userMessageId, content: trimmed });
+    await retryAssistant(assistantMessageId);
+  };
+
   return {
     messages,
     isLoadingMessages,
@@ -430,8 +657,10 @@ export function useChat(sessionId?: string) {
     changeMode,
     stopGenerating,
     retryAssistant,
+    editUserMessage,
     isSending: sendMessageMutation.isPending,
     isRetrying: retryAssistantMutation.isPending,
+    isEditing: updateUserMessageMutation.isPending,
     // Pagination for loading older messages
     fetchNextPage,
     hasNextPage,

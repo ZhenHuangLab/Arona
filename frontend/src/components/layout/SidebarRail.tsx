@@ -2,7 +2,6 @@ import { Link, useLocation } from 'react-router-dom';
 import { FileText, MessageSquare, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { ThemeToggle } from '@/components/theme';
 import { SettingsModal } from './SettingsModal';
 
 interface SidebarRailProps {
@@ -77,9 +76,8 @@ export function SidebarRail({ onExpand }: SidebarRailProps) {
         </Link>
       </nav>
 
-      {/* Bottom: Settings/theme still reachable */}
+      {/* Bottom: Settings */}
       <div className="p-2 border-t flex flex-col items-center gap-1">
-        <ThemeToggle />
         <SettingsModal />
       </div>
     </aside>

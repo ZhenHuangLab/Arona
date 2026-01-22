@@ -1,5 +1,4 @@
 import { SettingsModal } from './SettingsModal';
-import { ThemeToggle } from '@/components/theme';
 
 /**
  * Header Component
@@ -27,7 +26,6 @@ export function Header() {
 
           {/* Actions */}
           <div className="flex items-center gap-2">
-            <ThemeToggle />
             <SettingsModal />
           </div>
         </div>

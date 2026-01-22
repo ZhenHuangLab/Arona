@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Copy, Check, ChevronLeft, ChevronRight, RotateCcw, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import { Copy, Check, ChevronLeft, ChevronRight, RotateCcw, Loader2, Pencil, X } from 'lucide-react';
 import { Markdown } from '@/components/common';
 import { Button } from '@/components/ui/button';
 import { copyToClipboard } from '@/lib/clipboard';
@@ -12,6 +12,12 @@ interface MessageProps {
   onRetry?: (assistantMessageId: string) => Promise<void>;
   canRetry?: boolean;
   isRetrying?: boolean;
+  /** Whether this user message can be edited (only latest user message) */
+  canEdit?: boolean;
+  /** Callback when user confirms editing - receives the new content */
+  onEdit?: (messageId: string, newContent: string) => Promise<void>;
+  /** Whether editing is in progress (for loading state) */
+  isEditing?: boolean;
 }
 
 /**
@@ -27,9 +33,15 @@ export function Message({
   onRetry,
   canRetry,
   isRetrying,
+  canEdit,
+  onEdit,
+  isEditing,
 }: MessageProps) {
   const [copied, setCopied] = useState(false);
   const [isRetryingLocal, setIsRetryingLocal] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isUser = message.role === 'user';
   const isPending = message.pending;
   const variants = message.variants;
@@ -43,7 +55,11 @@ export function Message({
     hasVariants && variantCount > 0
       ? Math.max(0, Math.min(selectedVariantIndex, variantCount - 1))
       : 0;
-  const displayContent = hasVariants ? variants[clampedVariantIndex] : message.content;
+  const displayContent = isPending
+    ? message.content || '…'
+    : hasVariants
+      ? variants[clampedVariantIndex]
+      : message.content;
 
   const timeText = new Date(message.timestamp).toLocaleTimeString([], {
     hour: '2-digit',
@@ -69,31 +85,131 @@ export function Message({
     }
   };
 
+  const handleStartEdit = () => {
+    setEditContent(message.content);
+    setIsEditMode(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditMode(false);
+    setEditContent('');
+  };
+
+  const handleConfirmEdit = async () => {
+    if (!onEdit) return;
+    const trimmedContent = editContent.trim();
+    if (!trimmedContent || trimmedContent === message.content) {
+      handleCancelEdit();
+      return;
+    }
+    await onEdit(message.id, trimmedContent);
+    setIsEditMode(false);
+    setEditContent('');
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleConfirmEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancelEdit();
+    }
+  };
+
+  // Auto-resize textarea when editing
+  useEffect(() => {
+    if (isEditMode && textareaRef.current) {
+      const textarea = textareaRef.current;
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }
+  }, [isEditMode, editContent]);
+
   if (isUser) {
     return (
       <div className="group flex justify-end">
         <div className="flex max-w-[85%] flex-col items-end gap-1">
-          <div className="rounded-2xl rounded-br-md bg-muted/60 px-4 py-2">
-            <Markdown content={message.content} />
+          <div className="rounded-2xl rounded-br-md bg-muted/60 px-4 py-2 w-full">
+            {isEditMode ? (
+              <div className="flex flex-col gap-2">
+                <textarea
+                  ref={textareaRef}
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full min-h-[60px] p-2 bg-background border border-input rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+                  placeholder="Edit your message..."
+                  disabled={isEditing}
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCancelEdit}
+                    disabled={isEditing}
+                    className="h-7 px-2 text-xs"
+                  >
+                    <X className="h-3 w-3 mr-1" />
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    onClick={handleConfirmEdit}
+                    disabled={isEditing || !editContent.trim()}
+                    className="h-7 px-2 text-xs"
+                  >
+                    {isEditing ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <Check className="h-3 w-3 mr-1" />
+                    )}
+                    Save & Regenerate
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Markdown content={message.content} />
+            )}
           </div>
-          {/* Actions row below bubble - copy shown on hover */}
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
-              onClick={handleCopy}
-              aria-label="Copy user message"
-            >
-              {copied ? (
-                <Check className="h-3 w-3 text-green-500" aria-hidden="true" />
-              ) : (
-                <Copy className="h-3 w-3" aria-hidden="true" />
+          {/* Actions row below bubble - copy/edit shown on hover */}
+          {!isEditMode && (
+            <div className="flex items-center gap-1">
+              {canEdit && onEdit && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+                  onClick={handleStartEdit}
+                  disabled={isEditing}
+                  aria-label="Edit user message"
+                >
+                  <Pencil className="h-3 w-3" aria-hidden="true" />
+                </Button>
               )}
-            </Button>
-            <span className="text-[11px] text-muted-foreground">{timeText}</span>
-          </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+                onClick={handleCopy}
+                aria-label="Copy user message"
+              >
+                {copied ? (
+                  <Check className="h-3 w-3 text-green-500" aria-hidden="true" />
+                ) : (
+                  <Copy className="h-3 w-3" aria-hidden="true" />
+                )}
+              </Button>
+              <span className="text-[11px] text-muted-foreground">{timeText}</span>
+            </div>
+          )}
         </div>
       </div>
     );

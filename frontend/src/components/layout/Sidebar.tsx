@@ -15,7 +15,6 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ThemeToggle } from '@/components/theme';
 import { SettingsModal } from './SettingsModal';
 import { useChatSessions, useRenameSession, useDeleteSession } from '@/hooks';
 import {
@@ -419,12 +418,9 @@ export function Sidebar({ onCollapse }: SidebarProps) {
         </div>
       </div>
 
-      {/* Bottom: User Area with Theme and Settings */}
+      {/* Bottom: Settings */}
       <div className="p-3 border-t">
-        <div className="flex items-center gap-2">
-          <ThemeToggle />
-          <SettingsModal />
-        </div>
+        <SettingsModal />
       </div>
     </aside>
   );

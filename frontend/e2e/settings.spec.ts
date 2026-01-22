@@ -157,7 +157,8 @@ test.describe('Settings Modal', () => {
 
     await expect(page.getByText('LLM Provider')).toBeVisible();
     await expect(page.getByText('Embedding Model')).toBeVisible();
-    await expect(page.getByText(/gpt-4/i)).toBeVisible();
+    const llmCard = page.getByRole('heading', { name: 'LLM Provider' }).locator('..');
+    await expect(llmCard.locator('input[placeholder="e.g. gpt-4o-mini"]')).toHaveValue(/gpt-4/i);
   });
 
   test('shows indexing settings in Indexing tab', async ({ page }) => {
@@ -208,19 +209,10 @@ test.describe('Settings Modal', () => {
     // Click on Models tab
     await page.getByRole('tab', { name: /models/i }).click();
 
-    // Click Modify button to enter edit mode
-    await page.getByRole('button', { name: /modify/i }).click();
-
-    // Should show edit form fields
+    // Model settings should be editable immediately (no Modify button)
+    await expect(page.getByRole('button', { name: /modify/i })).toHaveCount(0);
+    await expect(page.getByText('LLM Provider')).toBeVisible();
     await expect(page.getByText('API Key (leave blank to keep)').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /save & apply/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /cancel/i })).toBeVisible();
-
-    // Click Cancel to exit edit mode
-    await page.getByRole('button', { name: /cancel/i }).click();
-
-    // Should show Modify button again
-    await expect(page.getByRole('button', { name: /modify/i })).toBeVisible();
   });
 
   test('navigates between tabs correctly', async ({ page }) => {

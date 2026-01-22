@@ -400,6 +400,9 @@ test.describe('Chat Interface', () => {
     await expect.poll(() => page.evaluate(() => (window as never as { __copiedText: string | null }).__copiedText))
       .toBe(assistantText);
 
+    // Wait for copy toast to disappear so it doesn't block hover events.
+    await expect(page.locator('section[aria-label^="Notifications"] li[data-sonner-toast]')).toHaveCount(0);
+
     await page.getByText('Hello, assistant!').hover();
     const userCopyButton = page.getByRole('button', { name: 'Copy user message' });
     await expect(userCopyButton).toBeVisible();
@@ -486,25 +489,34 @@ test.describe('Chat Interface', () => {
       });
     });
 
-    // Mock retry endpoint (updates assistant message in-place with variants)
-    await page.route(`**/api/chat/sessions/${sessionId}/messages/*/retry`, async (route) => {
+    // Mock retry streaming endpoint (SSE) - updates assistant message in-place with variants
+    await page.route(`**/api/chat/sessions/${sessionId}/messages/*/retry:stream`, async (route) => {
       if (!assistantMessageId) throw new Error('assistantMessageId not set');
+      const createdAt = new Date().toISOString();
 
       await route.fulfill({
         status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: assistantMessageId,
-          session_id: sessionId,
-          role: 'assistant',
-          content: assistantText2,
-          created_at: new Date().toISOString(),
-          metadata: {
-            request_id: lastRequestId,
-            variants: [assistantText1, assistantText2],
-            variant_index: 1,
-          },
-        }),
+        contentType: 'text/event-stream',
+        body: [
+          `data: ${JSON.stringify({ type: 'delta', delta: assistantText2 })}`,
+          '',
+          `data: ${JSON.stringify({
+            type: 'final',
+            message: {
+              id: assistantMessageId,
+              session_id: sessionId,
+              role: 'assistant',
+              content: assistantText2,
+              created_at: createdAt,
+              metadata: {
+                request_id: lastRequestId,
+                variants: [assistantText1, assistantText2],
+                variant_index: 1,
+              },
+            },
+          })}`,
+          '',
+        ].join('\n\n'),
       });
     });
 
@@ -532,6 +544,169 @@ test.describe('Chat Interface', () => {
 
     const nextVersion = page.getByRole('button', { name: 'Next assistant version' });
     await nextVersion.click();
+    await expect(page.getByText(assistantText2)).toBeVisible();
+  });
+
+  test('edits latest user message and regenerates assistant response', async ({ page }) => {
+    const sessionId = uuidv4();
+    const assistantText1 = 'Original assistant response';
+    const assistantText2 = 'Assistant response after edit';
+    let userMessageId: string | null = null;
+    let assistantMessageId: string | null = null;
+    let lastRequestId: string | null = null;
+
+    // Mock session detail
+    await page.route(`**/api/chat/sessions/${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: sessionId,
+          title: 'Test Session',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          metadata: {},
+        }),
+      });
+    });
+
+    // Mock messages list (empty initially)
+    await page.route(`**/api/chat/sessions/${sessionId}/messages*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [],
+          has_more: false,
+          next_cursor: null,
+        }),
+      });
+    });
+
+    // Mock streaming turn API (SSE) - first assistant response
+    await page.route(`**/api/chat/sessions/${sessionId}/turn:stream`, async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      lastRequestId = body.request_id;
+      userMessageId = uuidv4();
+      assistantMessageId = uuidv4();
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          `data: ${JSON.stringify({ type: 'delta', delta: assistantText1 })}`,
+          '',
+          `data: ${JSON.stringify({
+            type: 'final',
+            response: {
+              turn_id: body.request_id,
+              status: 'completed',
+              user_message: {
+                id: userMessageId,
+                session_id: sessionId,
+                role: 'user',
+                content: body.query,
+                created_at: new Date().toISOString(),
+                metadata: { mode: 'hybrid', request_id: body.request_id },
+              },
+              assistant_message: {
+                id: assistantMessageId,
+                session_id: sessionId,
+                role: 'assistant',
+                content: assistantText1,
+                created_at: new Date().toISOString(),
+                metadata: { request_id: body.request_id },
+              },
+              error: null,
+            },
+          })}`,
+          '',
+        ].join('\n\n'),
+      });
+    });
+
+    // Mock PATCH update user message endpoint
+    await page.route(new RegExp(`/api/chat/sessions/${sessionId}/messages/[^/]+$`), async (route) => {
+      if (route.request().method() !== 'PATCH') {
+        await route.continue();
+        return;
+      }
+
+      const body = JSON.parse(route.request().postData() || '{}');
+      const messageId = route.request().url().split('/').pop() || uuidv4();
+      const createdAt = new Date().toISOString();
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: messageId,
+          session_id: sessionId,
+          role: 'user',
+          content: body.content,
+          created_at: createdAt,
+          metadata: { mode: 'hybrid', request_id: lastRequestId },
+        }),
+      });
+    });
+
+    // Mock retry streaming endpoint (SSE) - regenerate assistant based on edited prompt
+    await page.route(`**/api/chat/sessions/${sessionId}/messages/*/retry:stream`, async (route) => {
+      if (!assistantMessageId) throw new Error('assistantMessageId not set');
+      const createdAt = new Date().toISOString();
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          `data: ${JSON.stringify({ type: 'delta', delta: assistantText2 })}`,
+          '',
+          `data: ${JSON.stringify({
+            type: 'final',
+            message: {
+              id: assistantMessageId,
+              session_id: sessionId,
+              role: 'assistant',
+              content: assistantText2,
+              created_at: createdAt,
+              metadata: {
+                request_id: lastRequestId,
+                variants: [assistantText1, assistantText2],
+                variant_index: 1,
+              },
+            },
+          })}`,
+          '',
+        ].join('\n\n'),
+      });
+    });
+
+    await page.goto(`/chat/${sessionId}`);
+
+    const messageInput = page.getByPlaceholder('Ask anything...');
+    const sendButton = page.getByRole('button', { name: /send message/i });
+
+    await messageInput.fill('Edit me');
+    await sendButton.click();
+
+    await expect(page.getByText('Edit me')).toBeVisible();
+    await expect(page.getByText(assistantText1)).toBeVisible();
+
+    // Hover to reveal edit button
+    await page.getByText('Edit me').hover();
+    const editButton = page.getByRole('button', { name: 'Edit user message' });
+    await expect(editButton).toBeVisible();
+    await editButton.click();
+
+    const textarea = page.getByPlaceholder('Edit your message...');
+    await expect(textarea).toBeVisible();
+    await textarea.fill('Edit me (updated)');
+
+    const saveButton = page.getByRole('button', { name: /save & regenerate/i });
+    await saveButton.click();
+
+    await expect(page.getByText('Edit me (updated)')).toBeVisible();
     await expect(page.getByText(assistantText2)).toBeVisible();
   });
 

@@ -193,6 +193,36 @@ export async function listMessages(
 }
 
 // =============================================================================
+// Message Update (User Edit)
+// =============================================================================
+
+export interface UpdateMessageRequest {
+  content: string;
+}
+
+/**
+ * Update the latest user message content in-place.
+ *
+ * Backend enforces that only the latest turn's user message is editable to
+ * avoid branching histories.
+ */
+export async function updateUserMessage(
+  sessionId: string,
+  messageId: string,
+  req: UpdateMessageRequest
+): Promise<MessageListResponse['messages'][number]> {
+  try {
+    const response = await apiClient.patch<MessageListResponse['messages'][number]>(
+      `/api/chat/sessions/${sessionId}/messages/${messageId}`,
+      req
+    );
+    return response.data;
+  } catch (error) {
+    handleAPIError(error);
+  }
+}
+
+// =============================================================================
 // Message (Retry / Regenerate)
 // =============================================================================
 
@@ -219,6 +249,92 @@ export async function retryAssistantMessage(
     return response.data;
   } catch (error) {
     handleAPIError(error);
+  }
+}
+
+// =============================================================================
+// Message Retry (Regenerate) - Streaming
+// =============================================================================
+
+export type RetryStreamEvent =
+  | { type: 'delta'; delta: string }
+  | { type: 'final'; message: MessageListResponse['messages'][number] }
+  | { type: 'error'; error: { code: string; message: string } };
+
+/**
+ * Retry (regenerate) an assistant message with SSE streaming.
+ *
+ * Server emits `text/event-stream` with JSON `data:` lines:
+ * - {"type":"delta","delta":"..."}
+ * - {"type":"final","message":{...ChatMessage...}}
+ * - {"type":"error","error":{"code":"...","message":"..."}}
+ */
+export async function* retryAssistantMessageStream(
+  sessionId: string,
+  assistantMessageId: string,
+  req: RetryAssistantMessageRequest = {},
+  options: { signal?: AbortSignal } = {}
+): AsyncGenerator<RetryStreamEvent> {
+  const baseURL = (apiClient.defaults.baseURL ?? '').replace(/\/$/, '');
+  const url = `${baseURL}/api/chat/sessions/${sessionId}/messages/${assistantMessageId}/retry:stream`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    },
+    body: JSON.stringify(req),
+    signal: options.signal,
+  });
+
+  if (!resp.ok) {
+    // Try to parse backend error shape {detail:{code,message,...}}.
+    let message = `${resp.status} ${resp.statusText}`.trim();
+    try {
+      const data = (await resp.json()) as unknown;
+      message = parseErrorDetail(data);
+    } catch {
+      // ignore
+    }
+    throw new APIException(resp.status, message);
+  }
+
+  if (!resp.body) {
+    throw new APIException(0, 'Streaming not supported by browser');
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by a blank line.
+    while (true) {
+      const match = buffer.match(/\r?\n\r?\n/);
+      if (!match || match.index == null) break;
+
+      const sepIndex = match.index;
+      const sepLen = match[0].length;
+
+      const rawEvent = buffer.slice(0, sepIndex);
+      buffer = buffer.slice(sepIndex + sepLen);
+
+      const lines = rawEvent.split(/\r?\n/);
+      const dataLines = lines
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice('data:'.length).trimStart());
+
+      const data = dataLines.join('\n').trim();
+      if (!data) continue;
+
+      const event: unknown = JSON.parse(data);
+      yield event as RetryStreamEvent;
+    }
   }
 }
 
