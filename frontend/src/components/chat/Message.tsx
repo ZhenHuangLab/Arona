@@ -132,7 +132,9 @@ export function Message({
     return (
       <div className="group flex justify-end">
         <div className="flex max-w-[85%] flex-col items-end gap-1">
-          <div className="rounded-2xl rounded-br-md bg-muted/60 px-4 py-2 w-full">
+          <div
+            className={`rounded-2xl rounded-br-md bg-muted/60 px-4 py-2${isEditMode ? ' w-full' : ''}`}
+          >
             {isEditMode ? (
               <div className="flex flex-col gap-2">
                 <textarea
