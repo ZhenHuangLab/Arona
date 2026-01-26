@@ -23,7 +23,7 @@ fastapi>=0.104.0
 httpx>=0.25.0
 
 # NumPy (compatibility constraint)
-numpy<2  # LOCKED: sentence-transformers has compatibility issues with NumPy 2.x
+numpy<3  # LOCKED: sentence-transformers has compatibility issues with NumPy 2.x
 
 # Image processing (required by Qwen3-VL processors)
 pillow>=10.0.0
