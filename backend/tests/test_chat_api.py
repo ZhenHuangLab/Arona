@@ -38,6 +38,12 @@ class MockRAGService:
         self.last_query = None
         self.should_fail = False
         self.fail_message = "Mock error"
+        # For retrieval prompt testing (legacy fallback)
+        self.retrieval_prompt = ""
+        self.retrieval_prompt_should_fail = False
+        # For retrieval data testing (primary method)
+        self.retrieval_data: Optional[dict] = None
+        self.retrieval_data_should_fail = False
 
     async def query(
         self,
@@ -82,6 +88,43 @@ class MockRAGService:
             raise RuntimeError(self.fail_message)
         return f"{self.response} (with image)"
 
+    async def get_retrieval_prompt(
+        self,
+        query: str,
+        mode: str = "hybrid",
+        conversation_history: Optional[list] = None,
+        **kwargs: Any,
+    ) -> str:
+        """Mock retrieval prompt method for testing auto-attach images (fallback)."""
+        if self.retrieval_prompt_should_fail:
+            raise RuntimeError("Retrieval prompt failed")
+        return self.retrieval_prompt
+
+    async def get_retrieval_data(
+        self,
+        query: str,
+        mode: str = "hybrid",
+        conversation_history: Optional[list] = None,
+        **kwargs: Any,
+    ) -> dict:
+        """Mock retrieval data method for testing auto-attach images (primary)."""
+        if self.retrieval_data_should_fail:
+            raise RuntimeError("Retrieval data failed")
+        # Return configured retrieval_data or a default empty success response
+        if self.retrieval_data is not None:
+            return self.retrieval_data
+        return {
+            "status": "success",
+            "message": "Query executed successfully",
+            "data": {
+                "entities": [],
+                "relationships": [],
+                "chunks": [],
+                "references": [],
+            },
+            "metadata": {},
+        }
+
 
 @pytest.fixture
 def temp_db_path(tmp_path: Path) -> str:
@@ -111,8 +154,13 @@ def mock_rag_service() -> MockRAGService:
 
 @pytest.fixture
 def mock_config(temp_upload_dir: str) -> SimpleNamespace:
-    """Create a mock config with upload_dir."""
-    return SimpleNamespace(upload_dir=temp_upload_dir)
+    """Create a mock config with upload_dir and chat settings."""
+    return SimpleNamespace(
+        upload_dir=temp_upload_dir,
+        working_dir=temp_upload_dir,
+        chat_auto_attach_retrieved_images=True,
+        chat_max_retrieved_images=4,
+    )
 
 
 @pytest.fixture
@@ -929,3 +977,691 @@ class TestIntegrationFlow:
         msgs2 = msgs2_resp.json()["messages"]
         assert len(msgs2) == 2
         assert "Session 2" in msgs2[0]["content"]
+
+
+# =============================================================================
+# Auto-Attach Retrieved Images Tests
+# =============================================================================
+
+
+class TestAutoAttachRetrievedImages:
+    """Tests for auto-attaching retrieved images to assistant responses."""
+
+    def test_auto_attach_images_from_retrieval_data_chunks(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        """Test that images are attached from retrieval data chunks (primary method)."""
+        # Set up mock retrieval data with chunks containing image paths
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "message": "Query executed successfully",
+            "data": {
+                "entities": [],
+                "relationships": [],
+                "chunks": [
+                    {
+                        "content": "Some relevant information here.\nImage Path: /path/to/test_image.png\nMore context.",
+                        "file_path": "test.pdf",
+                        "chunk_id": "chunk1",
+                    },
+                    {
+                        "content": "Another chunk with image.\nImage Path: /path/to/another_image.jpg",
+                        "file_path": "test.pdf",
+                        "chunk_id": "chunk2",
+                    },
+                ],
+                "references": [],
+            },
+            "metadata": {},
+        }
+
+        # Create session
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        # Create turn
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Tell me about images"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # Verify images section is appended
+        assert "### 相关图片（来自检索）" in assistant_content
+        assert "/api/files?path=" in assistant_content
+
+    def test_auto_attach_fallback_to_retrieval_prompt(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        """Test fallback to retrieval_prompt when retrieval_data has no images."""
+        # Set up retrieval_data with no image chunks
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {"chunks": [{"content": "Text without images", "chunk_id": "c1"}]},
+        }
+        # Set up retrieval_prompt as fallback
+        mock_rag_service.retrieval_prompt = """
+Context from knowledge base:
+Some relevant information here.
+Image Path: /path/to/fallback_image.png
+        """
+
+        # Create session
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        # Create turn
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Tell me about images"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # Verify images section is appended from fallback
+        assert "### 相关图片（来自检索）" in assistant_content
+        assert "/api/files?path=" in assistant_content
+
+    def test_auto_attach_respects_max_limit(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+        mock_config: SimpleNamespace,
+    ):
+        """Test that max_retrieved_images limit is respected."""
+        # Set limit to 2
+        mock_config.chat_max_retrieved_images = 2
+
+        # Set up mock retrieval data with 5 image paths across chunks
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {
+                "chunks": [
+                    {"content": "Image Path: /path/to/image1.png\nImage Path: /path/to/image2.png", "chunk_id": "c1"},
+                    {"content": "Image Path: /path/to/image3.png\nImage Path: /path/to/image4.png", "chunk_id": "c2"},
+                    {"content": "Image Path: /path/to/image5.png", "chunk_id": "c3"},
+                ],
+            },
+        }
+
+        # Create session
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        # Create turn
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Show me images"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # Count image references (should be max 2)
+        image_count = assistant_content.count("![检索图片]")
+        assert image_count == 2
+
+    def test_auto_attach_disabled(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+        mock_config: SimpleNamespace,
+    ):
+        """Test that images are NOT attached when feature is disabled."""
+        # Disable the feature
+        mock_config.chat_auto_attach_retrieved_images = False
+
+        # Set up mock retrieval data with image paths
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {
+                "chunks": [{"content": "Image Path: /path/to/test_image.png", "chunk_id": "c1"}],
+            },
+        }
+
+        # Create session
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        # Create turn
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Tell me about images"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # Verify images section is NOT appended
+        assert "### 相关图片（来自检索）" not in assistant_content
+        assert "/api/files?path=" not in assistant_content
+
+    def test_auto_attach_filters_remote_urls(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        """Test that remote URLs (http/https/data/blob) are filtered out."""
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {
+                "chunks": [
+                    {
+                        "content": """Image Path: https://example.com/remote_image.png
+Image Path: http://example.com/remote_image.jpg
+Image Path: data:image/png;base64,abc123
+Image Path: /path/to/local_image.png""",
+                        "chunk_id": "c1",
+                    }
+                ],
+            },
+        }
+
+        # Create session
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        # Create turn
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Show images"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # Only local image should be attached
+        assert "example.com" not in assistant_content
+        if "### 相关图片（来自检索）" in assistant_content:
+            image_count = assistant_content.count("![检索图片]")
+            assert image_count == 1
+
+    def test_auto_attach_extracts_markdown_syntax_from_chunks(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        """Test that markdown image syntax is also extracted from chunks."""
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {
+                "chunks": [
+                    {
+                        "content": "Here's an image: ![diagram](/path/to/diagram.png)\nAnd another: ![chart](/path/to/chart.jpg)",
+                        "chunk_id": "c1",
+                    }
+                ],
+            },
+        }
+
+        # Create session
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        # Create turn
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Show diagrams"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # Images from markdown syntax should be attached
+        if "### 相关图片（来自检索）" in assistant_content:
+            assert "/api/files?path=" in assistant_content
+
+    def test_auto_attach_retrieval_data_failure_graceful(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        """Test that retrieval data failure falls back gracefully."""
+        # Set retrieval data to fail
+        mock_rag_service.retrieval_data_should_fail = True
+        # Set retrieval prompt as fallback
+        mock_rag_service.retrieval_prompt = "Image Path: /path/to/fallback.png"
+
+        # Create session
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        # Create turn - should succeed using fallback
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Test graceful failure"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        # Should use fallback method
+        assert "### 相关图片（来自检索）" in data["assistant_message"]["content"]
+
+    def test_auto_attach_both_methods_fail_graceful(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        """Test that both retrieval methods failing doesn't break the response."""
+        # Set both to fail
+        mock_rag_service.retrieval_data_should_fail = True
+        mock_rag_service.retrieval_prompt_should_fail = True
+
+        # Create session
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        # Create turn - should succeed without images
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Test graceful failure"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        # Response should still be present (without images section)
+        assert data["assistant_message"]["content"] == mock_rag_service.response
+
+    def test_auto_attach_deduplicates_images_across_chunks(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        """Test that duplicate image paths across chunks are deduplicated."""
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {
+                "chunks": [
+                    {"content": "Image Path: /path/to/same_image.png", "chunk_id": "c1"},
+                    {"content": "Image Path: /path/to/same_image.png", "chunk_id": "c2"},
+                    {"content": "Image Path: /path/to/same_image.png\nImage Path: /path/to/other_image.jpg", "chunk_id": "c3"},
+                ],
+            },
+        }
+
+        # Create session
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        # Create turn
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Dedupe test"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # Should only have 2 unique images
+        if "### 相关图片（来自检索）" in assistant_content:
+            image_count = assistant_content.count("![检索图片]")
+            assert image_count == 2
+
+    def test_auto_attach_no_images_when_chunks_have_no_image_paths(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        """Test that no images are attached when chunks don't contain image paths."""
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {
+                "chunks": [
+                    {"content": "Just regular text content without any images.", "chunk_id": "c1"},
+                    {"content": "More text content. Figure 1 shows something.", "chunk_id": "c2"},
+                ],
+            },
+        }
+        # Ensure fallback also has no images
+        mock_rag_service.retrieval_prompt = "No images here either."
+
+        # Create session
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        # Create turn
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "What about Figure 1?"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # No images section should be appended (no figure-caption fallback anymore)
+        assert "### 相关图片（来自检索）" not in assistant_content
+
+    def test_auto_attach_rewrites_parsed_output_absolute_paths_to_images_shorthand(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        """Paths embedded in chunks may come from other environments (e.g., docker `/app/...`)."""
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {
+                "chunks": [
+                    {
+                        "content": (
+                            "Image Content Analysis:\n"
+                            "Image Path: /app/rag_storage/parsed_output/doc/auto/images/panel_g.jpg\n"
+                            "Visual Analysis: ..."
+                        ),
+                        "chunk_id": "c1",
+                    }
+                ],
+            },
+        }
+
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Show me the image"},
+        )
+        assert turn_resp.status_code == 200
+
+        assistant_content = turn_resp.json()["assistant_message"]["content"]
+        assert "/api/files?path=images%2Fpanel_g.jpg" in assistant_content
+
+
+# =============================================================================
+# External Image Sanitization Tests
+# =============================================================================
+
+
+class TestSanitizeExternalImages:
+    """Tests for demoting external image embeds (http/https) to plain links."""
+
+    def test_demotes_markdown_https_image_to_link(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        mock_rag_service.response = "Here is an image:\n\n![](https://i.imgur.com/does-not-exist.png)"
+        mock_rag_service.retrieval_prompt = ""
+
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Test sanitize"},
+        )
+        assert turn_resp.status_code == 200
+        assistant_content = turn_resp.json()["assistant_message"]["content"]
+
+        assert "![](https://i.imgur.com/does-not-exist.png)" not in assistant_content
+        assert "[external image](https://i.imgur.com/does-not-exist.png)" in assistant_content
+
+    def test_does_not_touch_images_in_code_fences(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        mock_rag_service.response = "```md\n![](https://i.imgur.com/example.png)\n```"
+        mock_rag_service.retrieval_prompt = ""
+
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Test fences"},
+        )
+        assert turn_resp.status_code == 200
+        assistant_content = turn_resp.json()["assistant_message"]["content"]
+
+        assert "![](https://i.imgur.com/example.png)" in assistant_content
+        assert "[external image](https://i.imgur.com/example.png)" not in assistant_content
+
+
+# =============================================================================
+# No Figure Reference Fallback Regression Tests
+# =============================================================================
+
+
+class TestFigureReferenceFallback:
+    """Regression tests: figure references do NOT trigger image attachment."""
+
+    def test_no_fallback_to_figure_refs_without_image_path(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+        mock_config: SimpleNamespace,
+        tmp_path: Path,
+    ):
+        """Integration test: figure references no longer trigger fallback image attachment.
+
+        This test verifies that figure references like "Figure 3" in retrieval content
+        do NOT cause images to be attached. Only explicit "Image Path:" lines or
+        markdown images in retrieved chunks should attach images.
+        """
+        # Set up mock parsed_output in tmp_path
+        parsed_output = tmp_path / "parsed_output" / "test_document"
+        parsed_output.mkdir(parents=True)
+        auto_dir = parsed_output / "auto"
+        auto_dir.mkdir()
+        images_dir = auto_dir / "images"
+        images_dir.mkdir()
+
+        # Create a test image
+        test_image = images_dir / "workflow.jpg"
+        test_image.write_bytes(b"test image content")
+
+        # Create content_list.json with figure mapping
+        content_list = [
+            {
+                "type": "image",
+                "img_path": "images/workflow.jpg",
+                "image_caption": ["Figure 3 | System architecture overview."],
+            },
+        ]
+        content_list_path = auto_dir / "test_document_content_list.json"
+        content_list_path.write_text(json.dumps(content_list))
+
+        # Configure mock with retrieval data with no Image Path lines (just figure refs)
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {
+                "chunks": [
+                    {
+                        "content": "Context from test_document:\nThe system architecture is shown in Figure 3.",
+                        "chunk_id": "c1",
+                    }
+                ],
+            },
+        }
+        mock_rag_service.retrieval_prompt = """
+Context from test_document:
+The system architecture is shown in Figure 3. This diagram illustrates
+the main components and their interactions.
+        """
+        mock_rag_service.response = "Based on Figure 3, the architecture consists of..."
+
+        # Update working_dir to use our temp directory
+        mock_config.working_dir = str(tmp_path)
+
+        # Create session and turn
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Explain the architecture"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # No images should be attached (no Image Path in chunks, figure ref fallback removed)
+        assert "### 相关图片（来自检索）" not in assistant_content
+
+    def test_no_fallback_to_figure_refs_with_subletter(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+        mock_config: SimpleNamespace,
+        tmp_path: Path,
+    ):
+        """Test that subletter figures like Figure 6g don't trigger fallback anymore."""
+        # Set up mock parsed_output
+        parsed_output = tmp_path / "parsed_output" / "sample_paper"
+        parsed_output.mkdir(parents=True)
+        auto_dir = parsed_output / "auto"
+        auto_dir.mkdir()
+        images_dir = auto_dir / "images"
+        images_dir.mkdir()
+
+        # Create test images for figure 6g
+        test_image = images_dir / "fig6g.jpg"
+        test_image.write_bytes(b"test image 6g")
+
+        # Create content_list.json with subletter figure
+        content_list = [
+            {
+                "type": "image",
+                "img_path": "images/fig6g.jpg",
+                "image_caption": ["Figure 6g | Detailed view of panel g."],
+            },
+        ]
+        content_list_path = auto_dir / "sample_paper_content_list.json"
+        content_list_path.write_text(json.dumps(content_list))
+
+        # Configure mock with no Image Path lines (just figure refs)
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {
+                "chunks": [
+                    {"content": "Context from sample_paper:\nAs shown in Figure 6g, the detailed analysis reveals...", "chunk_id": "c1"}
+                ],
+            },
+        }
+        mock_rag_service.retrieval_prompt = """
+Context from sample_paper:
+As shown in Figure 6g, the detailed analysis reveals...
+        """
+        mock_rag_service.response = "According to Figure 6g, we can see..."
+        mock_config.working_dir = str(tmp_path)
+
+        # Create session and turn
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "What does Figure 6g show?"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # No images should be attached (figure ref fallback removed)
+        assert "### 相关图片（来自检索）" not in assistant_content
+
+    def test_image_path_in_chunks_still_works(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+    ):
+        """Test that direct Image Path lines in chunks still trigger image attachment."""
+        # Set up retrieval data WITH Image Path lines in chunks
+        mock_rag_service.retrieval_data = {
+            "status": "success",
+            "data": {
+                "chunks": [
+                    {
+                        "content": "Context from knowledge base:\nSome relevant information here.\nImage Path: /path/to/direct_image.png\nMore context.\nAlso mentions Figure 1 here.",
+                        "chunk_id": "c1",
+                    }
+                ],
+            },
+        }
+
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Test"},
+        )
+        assert turn_resp.status_code == 200
+
+        data = turn_resp.json()
+        assistant_content = data["assistant_message"]["content"]
+
+        # Should attach image from Image Path line
+        assert "### 相关图片（来自检索）" in assistant_content
+        assert "direct_image.png" in assistant_content
+
+    def test_fallback_handles_no_working_dir_gracefully(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+        mock_config: SimpleNamespace,
+    ):
+        """Test fallback handles missing working_dir gracefully."""
+        mock_config.working_dir = None
+
+        mock_rag_service.retrieval_prompt = """
+Context mentions Figure 1 but no Image Path lines.
+        """
+
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Test"},
+        )
+        assert turn_resp.status_code == 200
+
+        # Should complete without error, just no images attached
+        data = turn_resp.json()
+        assert data["status"] == "completed"
+
+    def test_fallback_handles_nonexistent_parsed_output(
+        self,
+        client: TestClient,
+        mock_rag_service: MockRAGService,
+        mock_config: SimpleNamespace,
+        tmp_path: Path,
+    ):
+        """Test fallback handles nonexistent parsed_output directory."""
+        # Point to a directory without parsed_output
+        mock_config.working_dir = str(tmp_path)
+
+        mock_rag_service.retrieval_prompt = """
+Context mentions Figure 1 but no Image Path lines.
+        """
+
+        session_resp = client.post("/api/chat/sessions", json={})
+        session_id = session_resp.json()["id"]
+
+        turn_resp = client.post(
+            f"/api/chat/sessions/{session_id}/turn",
+            json={"request_id": str(uuid.uuid4()), "query": "Test"},
+        )
+        assert turn_resp.status_code == 200
+
+        # Should complete without error, just no images attached
+        data = turn_resp.json()
+        assert data["status"] == "completed"

@@ -43,6 +43,10 @@ export interface ConfigResponse {
     enable_table_processing: boolean;
     enable_equation_processing: boolean;
   };
+  chat?: {
+    auto_attach_retrieved_images: boolean;
+    max_retrieved_images: number;
+  };
 }
 
 export interface ModelInfo {

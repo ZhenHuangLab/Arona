@@ -26,6 +26,8 @@ from backend.models.config import (
     IndexingConfigUpdate,
     ModelsUpdateRequest,
     ModelsUpdateResponse,
+    ChatConfigResponse,
+    ChatConfigUpdate,
 )
 
 
@@ -608,6 +610,14 @@ async def get_current_config(request: Request):
                 "enable_table_processing": config.enable_table_processing,
                 "enable_equation_processing": config.enable_equation_processing,
             },
+            chat={
+                "auto_attach_retrieved_images": getattr(
+                    config, "chat_auto_attach_retrieved_images", True
+                ),
+                "max_retrieved_images": getattr(
+                    config, "chat_max_retrieved_images", 4
+                ),
+            },
         )
 
         # Add vision model if configured
@@ -1106,4 +1116,109 @@ async def update_models_config(request: Request, update: ModelsUpdateRequest):
             applied=applied,
             env_file=rel_env,
             reloaded_components=reloaded_components,
+        )
+
+
+@router.get("/chat", response_model=ChatConfigResponse)
+async def get_chat_config(request: Request):
+    """
+    Get current chat configuration.
+
+    Returns the chat settings including:
+    - auto_attach_retrieved_images: Whether to auto-attach images from retrieval
+    - max_retrieved_images: Maximum number of images to attach
+    """
+    try:
+        config = request.app.state.config
+
+        return ChatConfigResponse(
+            auto_attach_retrieved_images=getattr(
+                config, "chat_auto_attach_retrieved_images", True
+            ),
+            max_retrieved_images=getattr(
+                config, "chat_max_retrieved_images", 4
+            ),
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get chat config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get chat config: {str(e)}",
+        )
+
+
+@router.put("/chat", response_model=ChatConfigResponse)
+async def update_chat_config(request: Request, update: ChatConfigUpdate):
+    """
+    Update chat configuration at runtime and optionally persist to env file.
+
+    Supports partial updates - only specified fields will be changed.
+    Changes take effect immediately if apply=True (default).
+
+    Args:
+        update: ChatConfigUpdate with optional fields
+    """
+    project_root = Path(__file__).parent.parent.parent
+    env_path = choose_env_file(project_root)
+
+    if update.target_env_file:
+        candidate = (project_root / update.target_env_file).resolve()
+        root_resolved = project_root.resolve()
+        if root_resolved not in candidate.parents and candidate != root_resolved:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="target_env_file must be within the project directory",
+            )
+        env_path = candidate
+
+    try:
+        config = request.app.state.config
+        env_updates: dict[str, str] = {}
+
+        # Apply partial updates and prepare env file updates
+        if update.auto_attach_retrieved_images is not None:
+            if update.apply:
+                config.chat_auto_attach_retrieved_images = update.auto_attach_retrieved_images
+            env_updates["CHAT_AUTO_ATTACH_RETRIEVED_IMAGES"] = (
+                "true" if update.auto_attach_retrieved_images else "false"
+            )
+            logger.info(
+                f"Updated chat_auto_attach_retrieved_images to {update.auto_attach_retrieved_images}"
+            )
+
+        if update.max_retrieved_images is not None:
+            if update.apply:
+                config.chat_max_retrieved_images = update.max_retrieved_images
+            env_updates["CHAT_MAX_RETRIEVED_IMAGES"] = str(update.max_retrieved_images)
+            logger.info(
+                f"Updated chat_max_retrieved_images to {update.max_retrieved_images}"
+            )
+
+        # Persist to env file
+        if env_updates:
+            try:
+                update_env_file(env_path, env_updates)
+                load_dotenv(dotenv_path=env_path, override=True)
+            except Exception as e:
+                logger.warning(f"Failed to persist chat config to env file: {e}")
+                # Don't fail the request - runtime update was already applied
+
+        # Return updated configuration
+        return ChatConfigResponse(
+            auto_attach_retrieved_images=getattr(
+                config, "chat_auto_attach_retrieved_images", True
+            ),
+            max_retrieved_images=getattr(
+                config, "chat_max_retrieved_images", 4
+            ),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update chat config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update chat config: {str(e)}",
         )

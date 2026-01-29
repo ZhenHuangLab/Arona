@@ -14,6 +14,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  MessageSquare,
 } from 'lucide-react';
 import {
   Dialog,
@@ -36,6 +37,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { healthApi, configApi } from '@/api';
 import type { HealthResponse, ReadyResponse, ConfigResponse, ModelsUpdateRequest, ConfigReloadResponse } from '@/types/api';
 import { useIndexingConfig, useUpdateIndexingConfig } from '@/hooks/useIndexingConfig';
+import { useChatConfig, useUpdateChatConfig } from '@/hooks/useChatConfig';
 import { toast } from '@/lib/toast';
 import { useTheme } from '@/components/theme/ThemeProvider';
 
@@ -1191,6 +1193,144 @@ function IndexingTabContent() {
 }
 
 // ============================================================================
+// Chat Tab Content
+// ============================================================================
+
+function ChatTabContent() {
+  const { config, isLoading: isLoadingConfig } = useChatConfig();
+  const { updateConfig, isUpdating } = useUpdateChatConfig();
+
+  const [autoAttachImages, setAutoAttachImages] = useState(true);
+  const [maxRetrievedImages, setMaxRetrievedImages] = useState('4');
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Sync local state with fetched config
+  useEffect(() => {
+    if (config) {
+      setAutoAttachImages(config.auto_attach_retrieved_images);
+      setMaxRetrievedImages(String(config.max_retrieved_images));
+      setHasChanges(false);
+    }
+  }, [config]);
+
+  // Track changes
+  useEffect(() => {
+    if (!config) return;
+    const changed =
+      autoAttachImages !== config.auto_attach_retrieved_images ||
+      maxRetrievedImages !== String(config.max_retrieved_images);
+    setHasChanges(changed);
+  }, [autoAttachImages, maxRetrievedImages, config]);
+
+  const handleSave = (
+    overrides: Partial<{
+      autoAttachImages: boolean;
+      maxRetrievedImages: string;
+    }> = {}
+  ) => {
+    if (!config) return;
+    if (isUpdating) return;
+
+    const enabled = overrides.autoAttachImages ?? autoAttachImages;
+    const nextMaxImages = overrides.maxRetrievedImages ?? maxRetrievedImages;
+
+    const changed =
+      enabled !== config.auto_attach_retrieved_images ||
+      nextMaxImages !== String(config.max_retrieved_images);
+    if (!changed) return;
+
+    const maxImages = parseInt(nextMaxImages, 10);
+
+    if (isNaN(maxImages) || maxImages < 0) {
+      toast.error('Invalid Input', 'Max retrieved images must be at least 0');
+      setMaxRetrievedImages(String(config.max_retrieved_images));
+      return;
+    }
+
+    updateConfig({
+      auto_attach_retrieved_images: enabled,
+      max_retrieved_images: maxImages,
+    });
+  };
+
+  if (isLoadingConfig) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          Configure chat settings for auto-attaching retrieved images to assistant responses.
+        </p>
+        {isUpdating ? (
+          <Badge variant="secondary" className="gap-2">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Saving…
+          </Badge>
+        ) : hasChanges ? (
+          <Badge variant="outline">Unsaved changes</Badge>
+        ) : (
+          <Badge variant="outline">All changes saved</Badge>
+        )}
+      </div>
+
+      <SettingsCard>
+        <div className="space-y-4">
+          {/* Auto Attach Images Switch */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <Label htmlFor="auto_attach_images" className="text-sm font-medium">
+                Auto-attach Retrieved Images
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Automatically attach relevant images from RAG retrieval context to assistant responses
+              </p>
+            </div>
+            <Switch
+              id="auto_attach_images"
+              checked={autoAttachImages}
+              onCheckedChange={(checked) => {
+                setAutoAttachImages(checked);
+                handleSave({ autoAttachImages: checked });
+              }}
+              disabled={isUpdating}
+            />
+          </div>
+
+          <Separator />
+
+          {/* Max Retrieved Images Input */}
+          <div className="space-y-2">
+            <Label htmlFor="max_retrieved_images" className="text-sm font-medium">
+              Maximum Retrieved Images
+            </Label>
+            <Input
+              id="max_retrieved_images"
+              type="number"
+              min="0"
+              step="1"
+              value={maxRetrievedImages}
+              onChange={(e) => setMaxRetrievedImages(e.target.value)}
+              onBlur={() => handleSave()}
+              disabled={isUpdating}
+            />
+            <p className="text-xs text-muted-foreground">
+              Maximum number of images to attach per response (0 to disable)
+            </p>
+          </div>
+        </div>
+      </SettingsCard>
+
+    </div>
+  );
+}
+
+// ============================================================================
 // System Tab Content
 // ============================================================================
 
@@ -1345,6 +1485,27 @@ function SystemTabContent({
           />
         </div>
       </SettingsCard>
+
+      {/* Chat Settings */}
+      {configData.chat && (
+        <SettingsCard>
+          <h4 className="text-sm font-medium flex items-center gap-2">
+            <MessageSquare className="h-4 w-4" />
+            Chat Settings
+          </h4>
+          <div className="grid grid-cols-2 gap-2">
+            <ConfigRow
+              label="Auto-attach Retrieved Images"
+              value={<StatusIndicator ok={configData.chat.auto_attach_retrieved_images} yesText="Enabled" noText="Disabled" />}
+              mono={false}
+            />
+            <ConfigRow
+              label="Max Retrieved Images"
+              value={String(configData.chat.max_retrieved_images)}
+            />
+          </div>
+        </SettingsCard>
+      )}
     </div>
   );
 }
@@ -1783,7 +1944,7 @@ export function SettingsModal() {
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="status" aria-label="Status" className="flex items-center gap-1">
               <Server className="h-4 w-4" />
               <span className="hidden sm:inline">Status</span>
@@ -1799,6 +1960,10 @@ export function SettingsModal() {
             <TabsTrigger value="indexing" aria-label="Indexing" className="flex items-center gap-1">
               <FolderCog className="h-4 w-4" />
               <span className="hidden sm:inline">Indexing</span>
+            </TabsTrigger>
+            <TabsTrigger value="chat" aria-label="Chat" className="flex items-center gap-1">
+              <MessageSquare className="h-4 w-4" />
+              <span className="hidden sm:inline">Chat</span>
             </TabsTrigger>
             <TabsTrigger value="system" aria-label="System" className="flex items-center gap-1">
               <Database className="h-4 w-4" />
@@ -1837,6 +2002,10 @@ export function SettingsModal() {
 
             <TabsContent value="indexing" className="mt-0 h-full">
               <IndexingTabContent />
+            </TabsContent>
+
+            <TabsContent value="chat" className="mt-0 h-full">
+              <ChatTabContent />
             </TabsContent>
 
             <TabsContent value="system" className="mt-0 h-full">

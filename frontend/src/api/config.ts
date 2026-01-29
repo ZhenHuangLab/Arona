@@ -4,7 +4,7 @@
 
 import apiClient from './client';
 import type { ConfigResponse, ConfigReloadRequest, ConfigReloadResponse, ModelsUpdateRequest, ModelsUpdateResponse } from '../types';
-import type { IndexingConfig, IndexingConfigUpdate, TriggerIndexResponse, ReindexRequest, ReindexResponse } from '../types/config';
+import type { IndexingConfig, IndexingConfigUpdate, TriggerIndexResponse, ReindexRequest, ReindexResponse, ChatConfig, ChatConfigUpdate } from '../types/config';
 
 /**
  * Get current backend configuration
@@ -93,6 +93,32 @@ export const reindexDocuments = async (request: ReindexRequest): Promise<Reindex
   return response.data;
 };
 
+/**
+ * Get current chat configuration
+ *
+ * Fetches chat settings including:
+ * - auto_attach_retrieved_images: Whether to auto-attach images from retrieval
+ * - max_retrieved_images: Maximum number of images to attach
+ */
+export const getChatConfig = async (): Promise<ChatConfig> => {
+  const response = await apiClient.get<ChatConfig>('/api/config/chat');
+  return response.data;
+};
+
+/**
+ * Update chat configuration
+ *
+ * Updates chat settings at runtime and persists to env file.
+ * Supports partial updates - only specified fields will be changed.
+ *
+ * @param config - Partial configuration update (all fields optional)
+ * @returns Updated configuration
+ */
+export const updateChatConfig = async (config: ChatConfigUpdate): Promise<ChatConfig> => {
+  const response = await apiClient.put<ChatConfig>('/api/config/chat', config);
+  return response.data;
+};
+
 // Named export for convenience
 export const configApi = {
   getConfig,
@@ -102,4 +128,6 @@ export const configApi = {
   updateIndexingConfig,
   triggerIndex,
   reindexDocuments,
+  getChatConfig,
+  updateChatConfig,
 };

@@ -114,3 +114,35 @@ export interface ReindexResponse {
    */
   message: string;
 }
+
+/**
+ * Chat Configuration
+ *
+ * Configuration for chat auto-attach images feature.
+ * Returned by GET /api/config/chat
+ */
+export interface ChatConfig {
+  /**
+   * Whether to auto-attach retrieved images to assistant responses
+   */
+  auto_attach_retrieved_images: boolean;
+
+  /**
+   * Maximum number of retrieved images to attach
+   * Validation: Must be >= 0
+   */
+  max_retrieved_images: number;
+}
+
+/**
+ * Chat Configuration Update Request
+ *
+ * Request body for PUT /api/config/chat
+ * All fields are optional to support partial updates
+ */
+export interface ChatConfigUpdate {
+  auto_attach_retrieved_images?: boolean;
+  max_retrieved_images?: number;
+  apply?: boolean;
+  target_env_file?: string;
+}

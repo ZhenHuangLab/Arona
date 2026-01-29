@@ -355,6 +355,106 @@ class RAGService:
                 logger.error(f"Multimodal query failed: {e}", exc_info=True)
                 raise
 
+    async def get_retrieval_prompt(
+        self,
+        query: str,
+        mode: str = "hybrid",
+        conversation_history: list[dict] | None = None,
+        **kwargs,
+    ) -> str:
+        """
+        Get the RAG retrieval prompt/context without running the LLM.
+
+        Uses LightRAG's `only_need_prompt=True` to retrieve context only.
+        Forces vlm_enhanced=False to avoid image processing overhead.
+
+        Args:
+            query: User query text
+            mode: Query mode ("naive", "local", "global", "hybrid")
+            conversation_history: Optional conversation history
+            **kwargs: Additional query parameters
+
+        Returns:
+            Raw retrieval prompt containing context and image paths
+        """
+        async with self._operation():
+            rag = await self.get_rag_instance()
+
+            logger.info(f"Getting retrieval prompt: {query[:100]}... (mode={mode})")
+
+            try:
+                prompt_kwargs = dict(kwargs)
+                # Force vlm_enhanced=False to get raw prompt with image paths
+                prompt_kwargs["vlm_enhanced"] = False
+                prompt_kwargs["only_need_prompt"] = True
+                # Disable streaming for prompt retrieval
+                prompt_kwargs.pop("stream", None)
+
+                # Keep retrieval aligned with the main query call: pass conversation_history through
+                # instead of rewriting the query string.
+                if conversation_history:
+                    prompt_kwargs["conversation_history"] = conversation_history
+
+                result = await rag.aquery(query, mode=mode, **prompt_kwargs)
+                logger.info("Retrieval prompt fetched successfully")
+                return result
+            except Exception as e:
+                logger.error(f"Failed to get retrieval prompt: {e}", exc_info=True)
+                raise
+
+    async def get_retrieval_data(
+        self,
+        query: str,
+        mode: str = "hybrid",
+        conversation_history: list[dict] | None = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """
+        Get structured retrieval results (entities/relationships/chunks) without running the LLM.
+
+        This uses LightRAG's `aquery_data` so callers can reliably associate retrieved
+        chunks with their metadata (e.g., multimodal chunks that contain `Image Path:`).
+
+        Args:
+            query: User query text
+            mode: Query mode ("naive", "local", "global", "hybrid", "mix", "bypass")
+            conversation_history: Optional conversation history (passed through for consistency)
+            **kwargs: Additional query parameters (top_k, chunk_top_k, enable_rerank, etc.)
+
+        Returns:
+            Structured LightRAG data dict (see LightRAG aquery_data docs).
+        """
+        async with self._operation():
+            rag = await self.get_rag_instance()
+
+            logger.info(f"Getting retrieval data: {query[:100]}... (mode={mode})")
+
+            try:
+                # Import lazily to keep module import side-effects minimal.
+                from lightrag import QueryParam  # type: ignore
+
+                data_kwargs = dict(kwargs)
+                # Data retrieval doesn't need streaming.
+                data_kwargs.pop("stream", None)
+                # Ensure callers can't accidentally request prompt/context-only via kwargs.
+                data_kwargs.pop("only_need_prompt", None)
+                data_kwargs.pop("only_need_context", None)
+
+                # Keep retrieval aligned with the main query call: pass conversation_history through
+                # (LightRAG uses it for LLM context, not retrieval).
+                if conversation_history:
+                    data_kwargs["conversation_history"] = conversation_history
+
+                # Match the same rerank defaults used by RAGAnything.query to avoid noisy warnings.
+                if hasattr(rag, "_apply_query_defaults"):
+                    data_kwargs = rag._apply_query_defaults(data_kwargs)  # type: ignore[attr-defined]
+
+                query_param = QueryParam(mode=mode, stream=False, **data_kwargs)
+                return await rag.lightrag.aquery_data(query, query_param)
+            except Exception as e:
+                logger.error(f"Failed to get retrieval data: {e}", exc_info=True)
+                raise
+
     async def get_status(self) -> Dict[str, Any]:
         """
         Get RAG service status.

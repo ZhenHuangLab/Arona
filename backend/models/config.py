@@ -144,6 +144,9 @@ class CurrentConfigResponse(BaseModel):
     processing: Dict[str, Any] = Field(
         default_factory=dict, description="Processing configuration"
     )
+    chat: Dict[str, Any] = Field(
+        default_factory=dict, description="Chat configuration"
+    )
 
     class Config:
         json_schema_extra = {
@@ -152,6 +155,7 @@ class CurrentConfigResponse(BaseModel):
                 "models": {"llm": {"provider": "openai", "model_name": "gpt-4o-mini"}},
                 "storage": {"working_dir": "./rag_storage", "upload_dir": "./uploads"},
                 "processing": {"parser": "mineru", "enable_image_processing": True},
+                "chat": {"auto_attach_retrieved_images": True, "max_retrieved_images": 4},
             }
         }
 
@@ -197,5 +201,49 @@ class IndexingConfigUpdate(BaseModel):
             "example": {
                 "indexing_scan_interval": 120,
                 "indexing_max_files_per_batch": 10,
+            }
+        }
+
+
+class ChatConfigResponse(BaseModel):
+    """Response model for chat configuration."""
+
+    auto_attach_retrieved_images: bool = Field(
+        ..., description="Whether to auto-attach retrieved images to assistant responses"
+    )
+    max_retrieved_images: int = Field(
+        ..., ge=0, description="Maximum number of retrieved images to attach"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "auto_attach_retrieved_images": True,
+                "max_retrieved_images": 4,
+            }
+        }
+
+
+class ChatConfigUpdate(BaseModel):
+    """Request model for updating chat configuration (partial updates supported)."""
+
+    auto_attach_retrieved_images: Optional[bool] = Field(
+        None, description="Whether to auto-attach retrieved images to assistant responses"
+    )
+    max_retrieved_images: Optional[int] = Field(
+        None, ge=0, description="Maximum number of retrieved images to attach"
+    )
+    apply: bool = Field(
+        True, description="Whether to apply changes immediately to runtime config"
+    )
+    target_env_file: Optional[str] = Field(
+        None, description="Optional env file to persist into"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "auto_attach_retrieved_images": True,
+                "max_retrieved_images": 4,
             }
         }

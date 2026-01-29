@@ -353,6 +353,10 @@ class BackendConfig:
     port: int = 8000
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
 
+    # Chat settings: auto-attach retrieved images
+    chat_auto_attach_retrieved_images: bool = True
+    chat_max_retrieved_images: int = 4
+
     @classmethod
     def from_env(cls) -> BackendConfig:
         """Create BackendConfig from environment variables."""
@@ -417,6 +421,16 @@ class BackendConfig:
         port = int(os.getenv("API_PORT", "8000"))
         cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
 
+        # Chat settings
+        chat_auto_attach_retrieved_images = (
+            os.getenv("CHAT_AUTO_ATTACH_RETRIEVED_IMAGES", "true").lower() == "true"
+        )
+        chat_max_retrieved_images = int(
+            os.getenv("CHAT_MAX_RETRIEVED_IMAGES", "4")
+        )
+        if chat_max_retrieved_images < 0:
+            raise ValueError("CHAT_MAX_RETRIEVED_IMAGES must be >= 0")
+
         return cls(
             llm=llm,
             embedding=embedding,
@@ -438,6 +452,8 @@ class BackendConfig:
             host=host,
             port=port,
             cors_origins=cors_origins,
+            chat_auto_attach_retrieved_images=chat_auto_attach_retrieved_images,
+            chat_max_retrieved_images=chat_max_retrieved_images,
         )
 
     @classmethod

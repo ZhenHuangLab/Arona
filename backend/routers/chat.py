@@ -17,10 +17,13 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import time
 import sqlite3
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -48,6 +51,359 @@ router = APIRouter()
 
 DEFAULT_CHAT_MODE = "hybrid"
 MAX_QUERY_IMAGE_BYTES = 10 * 1024 * 1024
+
+# Image extensions for extraction
+_IMAGE_EXTENSIONS = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"}
+)
+
+# Regex patterns for extracting image paths from retrieval prompt
+_IMAGE_PATH_PATTERN = re.compile(
+    r"^\s*Image Path:\s*(.*?)\s*$", re.IGNORECASE | re.MULTILINE
+)
+# Markdown image syntax: ![alt](url "optional title")
+_MARKDOWN_IMAGE_PATTERN = re.compile(
+    r"!\[[^\]]*\]\(\s*([^\s)]+)(?:\s+['\"][^)]*['\"])?\s*\)"
+)
+_REMOTE_MARKDOWN_IMAGE_PATTERN = re.compile(
+    r"!\[([^\]]*)\]\(\s*(https?://[^\s)]+)(?:\s+['\"][^)]*['\"])?\s*\)",
+    re.IGNORECASE,
+)
+_REMOTE_HTML_IMG_PATTERN = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+
+
+def _sanitize_external_images_in_markdown(content: str) -> str:
+    """
+    Demote external image embeds (http/https) to plain links.
+
+    Motivation:
+    - LLMs may hallucinate image URLs (imgur/github/etc.), which renders as broken images.
+    - For security and determinism, we prefer local `/api/files?path=...` images only.
+
+    Behavior:
+    - Converts `![](https://...)` to `[external image](https://...)`.
+    - Converts `<img src="https://...">` to `[external image](https://...)`.
+    - Skips fenced code blocks (``` / ~~~).
+    """
+
+    def _extract_html_attr(tag: str, name: str) -> str | None:
+        m = re.search(
+            rf"{name}\s*=\s*(\"([^\"]*)\"|'([^']*)'|([^\s>]+))",
+            tag,
+            flags=re.IGNORECASE,
+        )
+        return (m.group(2) or m.group(3) or m.group(4) or "").strip() or None
+
+    def _rewrite_html_img(tag: str) -> str:
+        src = _extract_html_attr(tag, "src")
+        if not src:
+            return tag
+        if not src.lower().startswith(("http://", "https://")):
+            return tag
+        alt = _extract_html_attr(tag, "alt") or "external image"
+        # Escape ']' in alt to avoid breaking markdown link syntax.
+        safe_alt = alt.replace("]", "\\]")
+        return f"[{safe_alt}]({src})"
+
+    def _rewrite_line(line: str) -> str:
+        line = _REMOTE_HTML_IMG_PATTERN.sub(lambda m: _rewrite_html_img(m.group(0)), line)
+
+        def _rewrite_md(match: re.Match[str]) -> str:
+            alt = (match.group(1) or "").strip() or "external image"
+            url = match.group(2).strip()
+            safe_alt = alt.replace("]", "\\]")
+            return f"[{safe_alt}]({url})"
+
+        return _REMOTE_MARKDOWN_IMAGE_PATTERN.sub(_rewrite_md, line)
+
+    lines = content.splitlines()
+    in_fence = False
+    fence_token: str | None = None
+    out: list[str] = []
+    for line in lines:
+        trimmed = line.lstrip()
+        fence_match = re.match(r"^(```|~~~)", trimmed)
+        if fence_match:
+            token = fence_match.group(1)
+            if not in_fence:
+                in_fence = True
+                fence_token = token
+            elif fence_token == token:
+                in_fence = False
+                fence_token = None
+            out.append(line)
+            continue
+
+        out.append(line if in_fence else _rewrite_line(line))
+
+    return "\n".join(out)
+
+
+def _normalize_extracted_image_path(raw: str) -> str:
+    value = (raw or "").strip()
+    if not value:
+        return ""
+
+    # Strip wrapping angle brackets: <...>
+    if value.startswith("<") and value.endswith(">"):
+        value = value[1:-1].strip()
+
+    # Strip wrapping quotes: "..." or '...'
+    if (value.startswith('"') and value.endswith('"')) or (
+        value.startswith("'") and value.endswith("'")
+    ):
+        value = value[1:-1].strip()
+
+    return value
+
+
+def _has_image_extension(path_str: str) -> bool:
+    # Ignore query strings/fragments (rare for local paths, but safe).
+    clean = path_str.split("?", 1)[0].split("#", 1)[0]
+    return Path(clean).suffix.lower() in _IMAGE_EXTENSIONS
+
+
+def _extract_image_paths_from_prompt(prompt: str) -> list[str]:
+    """
+    Extract local image paths from a retrieval prompt.
+
+    Matches:
+    - Lines like 'Image Path: /path/to/image.png'
+    - Markdown image syntax ![alt](path)
+
+    Filters out remote URLs (http, https, data, blob).
+    Returns deduplicated paths.
+    """
+    paths: list[str] = []
+
+    # Extract from 'Image Path:' lines
+    for match in _IMAGE_PATH_PATTERN.finditer(prompt):
+        path = _normalize_extracted_image_path(match.group(1))
+        if path:
+            paths.append(path)
+
+    # Extract from markdown image syntax
+    for match in _MARKDOWN_IMAGE_PATTERN.finditer(prompt):
+        path = _normalize_extracted_image_path(match.group(1))
+        if path:
+            paths.append(path)
+
+    # Filter: only keep local paths (not http/https/data/blob)
+    local_paths: list[str] = []
+    seen: set[str] = set()
+    for p in paths:
+        p_lower = p.lower()
+        if any(p_lower.startswith(prefix) for prefix in ("http://", "https://", "data:", "blob:")):
+            continue
+        if not _has_image_extension(p):
+            continue
+        # Deduplicate
+        if p in seen:
+            continue
+        seen.add(p)
+        local_paths.append(p)
+
+    return local_paths
+
+
+def _convert_to_api_files_url(path: str, working_dir: str | None = None) -> str:
+    """
+    Convert a local image path to an /api/files?path=... URL.
+
+    Prefer the shorthand `images/<basename>` for parsed_output images to:
+    - avoid leaking absolute paths
+    - be resilient to stale absolute paths embedded in stored chunks (e.g. docker `/app/...`)
+    """
+    normalized = path
+    if normalized.lower().startswith("file://"):
+        normalized = normalized[7:]
+    p = Path(normalized)
+    suffix = p.suffix.lower()
+
+    # Use shorthand for common parsed_output patterns even if the absolute prefix
+    # doesn't match the current machine (e.g. /app/rag_storage/...).
+    if working_dir and suffix in _IMAGE_EXTENSIONS:
+        normalized_lower = normalized.lower()
+        if (
+            "parsed_output" in normalized_lower
+            or "/images/" in normalized_lower
+            or normalized_lower.startswith("images/")
+        ):
+            return f"/api/files?path={quote(f'images/{p.name}', safe='')}"
+
+        # If this is a real path under the current working_dir/parsed_output, also use shorthand.
+        working_root = Path(working_dir)
+        parsed_output = working_root / "parsed_output"
+        try:
+            rel = p.resolve().relative_to(parsed_output.resolve())
+            if "images" in rel.parts:
+                return f"/api/files?path={quote(f'images/{p.name}', safe='')}"
+        except ValueError:
+            pass
+
+    # Fallback: use full path (URL-encoded)
+    return f"/api/files?path={quote(str(p), safe='')}"
+
+
+def _images_already_in_content(content: str, image_urls: list[str]) -> set[str]:
+    """Check which image URLs are already present in the content."""
+    already_present: set[str] = set()
+    for url in image_urls:
+        if url in content:
+            already_present.add(url)
+        # Also check for the unencoded basename
+        basename = Path(url.split("path=")[-1]).name if "path=" in url else ""
+        if basename and basename in content:
+            already_present.add(url)
+    return already_present
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+async def _maybe_attach_retrieved_images(
+    assistant_content: str,
+    query: str,
+    conversation_history: list[dict] | None,
+    rag_service: Any,
+    config: Any,
+    mode: str = "hybrid",
+) -> str:
+    """
+    If enabled in config, fetch retrieval data and attach images from retrieved chunks.
+
+    Primary method: Use get_retrieval_data to get structured chunks, then extract
+    "Image Path:" lines or markdown images from chunk content. This ensures we only
+    attach images that come from the actually retrieved text chunks (e.g., image-derived
+    chunks generated via VLM).
+
+    Returns the (possibly modified) assistant content.
+    """
+    # Check if feature is enabled
+    if not getattr(config, "chat_auto_attach_retrieved_images", True):
+        return assistant_content
+
+    max_images = getattr(config, "chat_max_retrieved_images", 4)
+    if max_images <= 0:
+        return assistant_content
+
+    working_dir = getattr(config, "working_dir", None)
+
+    # Primary method: Use get_retrieval_data for structured chunk access
+    if hasattr(rag_service, "get_retrieval_data"):
+        try:
+            retrieval_data = await rag_service.get_retrieval_data(
+                query=query,
+                mode=mode,
+                conversation_history=conversation_history,
+            )
+            image_paths = _extract_image_paths_from_retrieval_data(retrieval_data)
+            if image_paths:
+                logger.debug(
+                    "Extracted %d image paths from retrieval data chunks",
+                    len(image_paths),
+                )
+        except Exception as exc:
+            logger.debug("Failed to get retrieval data for image extraction: %s", exc)
+            image_paths = []
+    else:
+        image_paths = []
+
+    # Fallback: use get_retrieval_prompt if available and no images found yet
+    if not image_paths and hasattr(rag_service, "get_retrieval_prompt"):
+        try:
+            retrieval_prompt = await rag_service.get_retrieval_prompt(
+                query=query,
+                mode=mode,
+                conversation_history=conversation_history,
+            )
+            if retrieval_prompt:
+                image_paths = _extract_image_paths_from_prompt(retrieval_prompt)
+                if image_paths:
+                    logger.debug(
+                        "Extracted %d image paths from retrieval prompt fallback",
+                        len(image_paths),
+                    )
+        except Exception as exc:
+            logger.debug("Failed to get retrieval prompt for image extraction: %s", exc)
+
+    if not image_paths:
+        return assistant_content
+
+    # Convert to API URLs
+    image_urls = [_convert_to_api_files_url(p, working_dir) for p in image_paths]
+    image_urls = _dedupe_preserve_order(image_urls)
+
+    # Filter out images already present in content
+    already_present = _images_already_in_content(assistant_content, image_urls)
+    image_urls = [url for url in image_urls if url not in already_present]
+    image_urls = image_urls[:max_images]
+
+    if not image_urls:
+        return assistant_content
+
+    # Build markdown section
+    image_lines = [f"![检索图片]({url})" for url in image_urls]
+    images_section = "\n\n---\n\n### 相关图片（来自检索）\n\n" + "\n\n".join(image_lines)
+
+    return assistant_content + images_section
+
+
+def _extract_image_paths_from_retrieval_data(retrieval_data: dict) -> list[str]:
+    """
+    Extract local image paths from structured retrieval data.
+
+    Looks for 'Image Path:' lines or markdown images within the 'content' field
+    of each retrieved chunk. This ensures we only get images from chunks that
+    were actually retrieved and matched the query.
+
+    Args:
+        retrieval_data: Result from RAGService.get_retrieval_data()
+
+    Returns:
+        List of local image paths (deduplicated)
+    """
+    if not isinstance(retrieval_data, dict):
+        return []
+
+    # Handle both success and error responses
+    if retrieval_data.get("status") != "success":
+        return []
+
+    data = retrieval_data.get("data", {})
+    if not isinstance(data, dict):
+        return []
+
+    chunks = data.get("chunks", [])
+    if not isinstance(chunks, list):
+        return []
+
+    all_paths: list[str] = []
+    seen: set[str] = set()
+
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        content = chunk.get("content", "")
+        if not content or not isinstance(content, str):
+            continue
+
+        # Extract image paths from this chunk's content
+        chunk_paths = _extract_image_paths_from_prompt(content)
+        for path in chunk_paths:
+            if path not in seen:
+                seen.add(path)
+                all_paths.append(path)
+
+    return all_paths
 
 
 def _make_error(
@@ -695,6 +1051,20 @@ async def create_turn(
             error={"code": "LLM_ERROR", "message": error_detail},
         )
 
+    assistant_content = _sanitize_external_images_in_markdown(assistant_content)
+
+    # Auto-attach retrieved images (if enabled)
+    config = getattr(request.app.state, "config", None)
+    if config and rag_service:
+        assistant_content = await _maybe_attach_retrieved_images(
+            assistant_content=assistant_content,
+            query=query,
+            conversation_history=conversation_history,
+            rag_service=rag_service,
+            config=config,
+            mode=mode,
+        )
+
     # Write assistant message + complete turn (short transaction).
     try:
         assistant_message = store.append_message(
@@ -1026,6 +1396,20 @@ async def create_turn_stream(
             yield _sse({"type": "final", "response": final.model_dump()})
             return
 
+        assistant_content = _sanitize_external_images_in_markdown(assistant_content)
+
+        # Auto-attach retrieved images (if enabled)
+        config = getattr(request.app.state, "config", None)
+        if config and rag_service:
+            assistant_content = await _maybe_attach_retrieved_images(
+                assistant_content=assistant_content,
+                query=query,
+                conversation_history=conversation_history,
+                rag_service=rag_service,
+                config=config,
+                mode=mode,
+            )
+
         # Write assistant message + complete turn (short transaction).
         try:
             assistant_message = store.append_message(
@@ -1246,6 +1630,20 @@ async def retry_assistant_message(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=_make_error("LLM_ERROR", "Query pipeline returned no response"),
+        )
+
+    assistant_content = _sanitize_external_images_in_markdown(assistant_content)
+
+    # Auto-attach retrieved images (if enabled)
+    config = getattr(request.app.state, "config", None)
+    if config and rag_service:
+        assistant_content = await _maybe_attach_retrieved_images(
+            assistant_content=assistant_content,
+            query=query,
+            conversation_history=conversation_history,
+            rag_service=rag_service,
+            config=config,
+            mode=mode,
         )
 
     # Update assistant message in-place, keeping a variants history in metadata.
@@ -1488,6 +1886,20 @@ async def retry_assistant_message_stream(
             error_msg = llm_error or "Query pipeline returned no response"
             yield _sse({"type": "error", "error": {"code": "LLM_ERROR", "message": error_msg}})
             return
+
+        assistant_content = _sanitize_external_images_in_markdown(assistant_content)
+
+        # Auto-attach retrieved images (if enabled)
+        config = getattr(request.app.state, "config", None)
+        if config and rag_service:
+            assistant_content = await _maybe_attach_retrieved_images(
+                assistant_content=assistant_content,
+                query=query,
+                conversation_history=conversation_history,
+                rag_service=rag_service,
+                config=config,
+                mode=mode,
+            )
 
         # Update assistant message in-place, keeping a variants history in metadata.
         meta = dict(_assistant_message.metadata or {})
