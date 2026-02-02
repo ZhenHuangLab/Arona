@@ -29,7 +29,7 @@ dependencies = [
     # Note: For GTX 1080 Ti (Pascal, sm_61), prefer CUDA 11.8 wheels.
     "torch==2.7.1+cu118",
     "torchvision==0.22.1+cu118",
-    "triton==3.3.1; platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "triton==3.5.1; platform_machine == 'x86_64' and sys_platform == 'linux'",
     "transformers>=4.57.0",
     "qwen-vl-utils>=0.0.14",
     "sentence-transformers>=2.3.0",
