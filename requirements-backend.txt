@@ -53,7 +53,7 @@ sentence-transformers>=2.3.0
 # For GTX 1080 Ti (Pascal, sm_61), prefer CUDA 11.8 wheels.
 #
 # PyTorch (cu118)
-torch==2.7.1+cu118
+torch==2.9.1
 torchvision==0.22.1+cu118
 
 # Transformers and Qwen3-VL
